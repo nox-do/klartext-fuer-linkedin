@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="LinkedIn-Text: lokale Eignungs-Einschätzung und Hinweise — nur im Browser."
+    />
+    <title>LinkedIn-Texthelfer</title>
+    <style>
+      :root {
+        --bg: #0f1419;
+        --panel: #1a2332;
+        --text: #e7ecf3;
+        --muted: #8b98a8;
+        --accent: #70b7ff;
+        --ok: #3ecf8e;
+        --warn: #f5a524;
+        --err: #f56565;
+        --border: #2d3a4d;
+        --in: #0a66c2;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        line-height: 1.5;
+      }
+      main {
+        max-width: 48rem;
+        margin: 0 auto;
+        padding: 1.5rem 1rem 3rem;
+      }
+      h1 {
+        font-size: 1.35rem;
+        font-weight: 600;
+        margin: 0 0 0.5rem;
+      }
+      .sub {
+        color: var(--muted);
+        font-size: 0.95rem;
+        margin-bottom: 0.85rem;
+      }
+      .disclaimer {
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin: 0 0 1.35rem;
+        line-height: 1.45;
+      }
+      section {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1rem 1.1rem;
+        margin-bottom: 1rem;
+      }
+      section h2 {
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--muted);
+        margin: 0 0 0.75rem;
+        font-weight: 600;
+      }
+      .insights h2 {
+        margin-bottom: 0.35rem;
+      }
+      .insights-lead {
+        font-size: 0.8rem;
+        color: var(--muted);
+        margin: 0 0 0.75rem;
+      }
+      label {
+        display: block;
+        font-size: 0.85rem;
+        color: var(--muted);
+        margin-bottom: 0.35rem;
+      }
+      textarea {
+        width: 100%;
+        min-height: 5rem;
+        padding: 0.6rem 0.65rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        font-size: 1rem;
+        line-height: 1.45;
+        resize: vertical;
+      }
+      textarea:focus {
+        outline: 2px solid var(--accent);
+        outline-offset: 1px;
+      }
+      #draft {
+        min-height: 14rem;
+      }
+      .kind-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        margin-top: 0.55rem;
+      }
+      .kind-chip {
+        padding: 0.3rem 0.55rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        font-size: 0.76rem;
+        color: var(--muted);
+        background: var(--bg);
+      }
+      .kind-chip.primary {
+        border-color: var(--accent);
+        color: var(--accent);
+        background: rgba(112, 183, 255, 0.12);
+        font-weight: 600;
+      }
+      .kind-detail {
+        margin-top: 0.45rem;
+        font-size: 0.8rem;
+        color: var(--muted);
+      }
+      .meter {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-top: 0.45rem;
+        font-size: 0.8rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      .meter span.ct {
+        font-weight: 700;
+      }
+      .ok {
+        color: var(--ok);
+      }
+      .warn {
+        color: var(--warn);
+      }
+      .err {
+        color: var(--err);
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.6rem;
+      }
+      button {
+        cursor: pointer;
+        border: none;
+        border-radius: 8px;
+        padding: 0.5rem 0.85rem;
+        font-size: 0.88rem;
+        font-weight: 600;
+        background: var(--in);
+        color: #fff;
+      }
+      button:hover {
+        filter: brightness(1.08);
+      }
+      button.ghost {
+        background: var(--border);
+        color: var(--text);
+      }
+      details.expert {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 0.35rem 1rem 0.85rem;
+        margin-bottom: 1rem;
+      }
+      details.expert > summary {
+        cursor: pointer;
+        font-weight: 600;
+        color: var(--accent);
+        padding: 0.4rem 0;
+        list-style-position: outside;
+      }
+      .expert-inner {
+        padding-top: 0.35rem;
+        border-top: 1px solid var(--border);
+        margin-top: 0.35rem;
+      }
+      .expert-inner > .expert-block {
+        margin-bottom: 1rem;
+      }
+      .expert-inner > .expert-block:last-child {
+        margin-bottom: 0;
+      }
+      .expert-inner h3.expert-h {
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        margin: 0 0 0.5rem;
+        font-weight: 600;
+      }
+      .signal-stream {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .signal-stream li {
+        padding: 0.55rem 0.65rem 0.55rem 0.75rem;
+        margin-bottom: 0.45rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        border-left-width: 4px;
+        background: var(--bg);
+        font-size: 0.88rem;
+        line-height: 1.4;
+        color: var(--text);
+      }
+      .signal-stream li:last-child {
+        margin-bottom: 0;
+      }
+      .signal-stream li.sig-risk {
+        border-left-color: var(--err);
+        background: rgba(245, 101, 101, 0.06);
+      }
+      .signal-stream li.sig-warn {
+        border-left-color: #e8b86a;
+      }
+      .signal-stream li.sig-info {
+        border-left-color: var(--border);
+        color: var(--muted);
+      }
+      .insights-subh {
+        font-size: 0.88rem;
+        font-weight: 600;
+        margin: 1rem 0 0.35rem;
+        color: var(--text);
+      }
+      .preview-panel .insights-subh:first-child {
+        margin-top: 0;
+      }
+      .preview-panel {
+        margin-top: 1rem;
+        padding-top: 1rem;
+        border-top: 1px solid var(--border);
+      }
+      .preview-micro {
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin: 0 0 0.5rem;
+        line-height: 1.4;
+      }
+      .preview-legend {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        margin-bottom: 0.55rem;
+        align-items: center;
+      }
+      .leg {
+        font-size: 0.7rem;
+        padding: 0.12rem 0.45rem;
+        border-radius: 4px;
+        border-left: 4px solid var(--border);
+        background: var(--bg);
+        color: var(--muted);
+      }
+      .leg-risk {
+        border-left-color: var(--err);
+      }
+      .leg-warn {
+        border-left-color: #e8b86a;
+      }
+      .leg-hint {
+        border-left-color: var(--warn);
+      }
+      .preview-rich {
+        line-height: 1.5;
+        word-break: break-word;
+      }
+      .preview-rich .hl {
+        border-radius: 3px;
+        box-decoration-break: clone;
+        -webkit-box-decoration-break: clone;
+      }
+      .preview-rich .hl-risk {
+        background: rgba(245, 101, 101, 0.24);
+      }
+      .preview-rich .hl-warn {
+        background: rgba(232, 184, 106, 0.28);
+      }
+      .preview-rich .hl-hint {
+        background: rgba(245, 165, 36, 0.16);
+      }
+      .preview-rich .hl-pass {
+        background: rgba(62, 207, 142, 0.14);
+      }
+      .preview-rich .hl-na {
+        background: rgba(45, 58, 77, 0.5);
+      }
+      .preview-li-ta {
+        width: 100%;
+        min-height: 6rem;
+        padding: 0.55rem 0.6rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: var(--bg);
+        color: var(--text);
+        font-size: 0.9rem;
+        line-height: 1.45;
+        resize: vertical;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+      .metrics {
+        display: grid;
+        gap: 0.35rem;
+        font-size: 0.88rem;
+        color: var(--muted);
+      }
+      .metrics strong {
+        color: var(--text);
+      }
+      .preview-box {
+        margin-top: 0.5rem;
+        padding: 0.65rem 0.75rem;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        font-size: 0.88rem;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 8rem;
+        overflow: auto;
+        color: var(--text);
+      }
+      .hint-list {
+        list-style: none;
+        padding: 0;
+        margin: 0.35rem 0 0;
+      }
+      .hint-list li {
+        padding: 0.45rem 0;
+        border-bottom: 1px solid var(--border);
+        font-size: 0.86rem;
+        color: var(--muted);
+      }
+      .hint-list li:last-child {
+        border-bottom: none;
+      }
+      .hint-list li.warn {
+        color: var(--warn);
+      }
+      .hint-list li.info {
+        color: var(--muted);
+      }
+      .style-note {
+        font-size: 0.78rem;
+        color: var(--muted);
+        margin: 0 0 0.5rem;
+      }
+      .check-h3 {
+        font-size: 0.95rem;
+        margin: 1rem 0 0.5rem;
+        color: var(--text);
+        font-weight: 600;
+      }
+      .check-h3:first-of-type {
+        margin-top: 0;
+      }
+      .progress-wrap {
+        margin: 0.25rem 0 0.65rem;
+      }
+      .progress-track {
+        height: 9px;
+        background: var(--bg);
+        border-radius: 5px;
+        overflow: hidden;
+        border: 1px solid var(--border);
+      }
+      .progress-fill {
+        height: 100%;
+        width: 0%;
+        border-radius: 4px;
+        transition: width 0.22s ease, background 0.2s ease;
+      }
+      .progress-fill.best {
+        background: linear-gradient(90deg, var(--ok), #2ea870);
+      }
+      .progress-fill.nogo {
+        background: linear-gradient(90deg, var(--accent), #4a8fd4);
+      }
+      .progress-fill.nogo.has-risk {
+        background: linear-gradient(90deg, var(--err), #c53030);
+      }
+      .progress-label {
+        font-size: 0.76rem;
+        color: var(--muted);
+        margin-top: 0.3rem;
+      }
+      .check-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .check-result {
+        padding: 0.55rem 0.75rem 0.55rem 0.85rem;
+        margin-bottom: 0.45rem;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        border-left-width: 4px;
+        background: var(--bg);
+      }
+      .check-result.sig-pass {
+        border-left-color: var(--ok);
+      }
+      .check-result.sig-hint {
+        border-left-color: var(--warn);
+      }
+      .check-result.sig-warn {
+        border-left-color: #e8b86a;
+      }
+      .check-result.sig-risk {
+        border-left-color: var(--err);
+        background: rgba(245, 101, 101, 0.06);
+      }
+      .check-result.sig-na {
+        border-left-color: var(--border);
+      }
+      .check-band {
+        display: block;
+        font-size: 0.65rem;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        margin-bottom: 0.3rem;
+        color: var(--muted);
+      }
+      .check-title {
+        font-size: 0.88rem;
+        font-weight: 600;
+        color: var(--text);
+        margin-bottom: 0.3rem;
+        line-height: 1.35;
+      }
+      .check-detail {
+        font-size: 0.82rem;
+        color: var(--muted);
+        line-height: 1.4;
+      }
+      .check-support {
+        margin-top: 0.35rem;
+        font-size: 0.72rem;
+        color: var(--muted);
+        font-style: italic;
+      }
+      .nogo-banner {
+        margin: 0.65rem 0 0.75rem;
+        padding: 0.55rem 0.75rem;
+        border-radius: 8px;
+        border: 1px solid rgba(245, 101, 101, 0.45);
+        background: rgba(245, 101, 101, 0.1);
+        color: var(--text);
+        font-size: 0.84rem;
+      }
+      .nlp-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+        gap: 0.65rem;
+        margin-top: 0.5rem;
+      }
+      .nlp-card {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.55rem 0.65rem;
+        font-size: 0.82rem;
+        color: var(--muted);
+      }
+      .nlp-card strong {
+        display: block;
+        color: var(--text);
+        font-size: 0.78rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin-bottom: 0.25rem;
+      }
+      .nlp-val {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.95rem;
+        color: var(--accent);
+      }
+      .nlp-card.wide {
+        grid-column: 1 / -1;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>LinkedIn-Texthelfer</h1>
+      <p class="sub">
+        Text hier einfügen oder schreiben — sobald etwas drinsteht, zeigen wir, was uns nach Länge, Struktur und
+        Mustern auffällt. Läuft komplett in <strong>deinem Browser</strong> (kein Login, kein Server von uns).
+      </p>
+      <p class="disclaimer">
+        Keine offizielle LinkedIn-Seite. Zeichenlimits sind Richtwerte — kurz in der Plattform gegenprüfen.
+      </p>
+
+      <section class="write" aria-label="Eingabe">
+        <label for="draft">Dein Text</label>
+        <textarea
+          id="draft"
+          maxlength="12000"
+          rows="14"
+          placeholder="Los geht's … Headline, Nachricht, Feed-Post oder längerer Beitrag."
+        ></textarea>
+        <div class="meter">
+          <span id="lenBandHint">Orientierung: ~220 Schlagzeile · ~300 Nachricht · ~3.000 Feed</span>
+          <span class="ct" id="draftStats"></span>
+        </div>
+        <div class="row">
+          <button type="button" data-copy="draft">In Zwischenablage</button>
+          <button type="button" class="ghost" id="btnClear">Leeren</button>
+        </div>
+      </section>
+
+      <section id="insightsSection" class="insights" hidden>
+        <h2>Was uns auffällt</h2>
+        <p class="insights-lead">
+          Wir gehen davon aus, dass du hier etwas für <strong>LinkedIn</strong> formulierst — Kontaktanfrage,
+          Einladung, Feed-Beitrag, Schlagzeile oder längerer Artikel, ganz egal. Aus dem Text schätzen wir grob, wofür
+          er passen könnte, und sammeln darauf aufbauend <strong>Auffälligkeiten</strong> und
+          <strong>Ideen</strong> zum Gegenchecken (Länge, Struktur, typische Stolpersteine). Kein Urteil über Thema
+          oder Person — nur eine zweite, mechanische Lesart; keine Garantie.
+        </p>
+        <ul id="signalStream" class="signal-stream" aria-live="polite"></ul>
+
+        <div id="previewPanel" class="preview-panel" hidden>
+          <h3 class="insights-subh">Vorschau mit Markierungen</h3>
+          <p class="preview-micro">
+            Markierungen im Fließtext — Farben wie bei den Checklisten (Risiko, Achtung, Hinweis). Typische Füllwörter
+            zusätzlich als Hinweis hinterlegt.
+          </p>
+          <div class="preview-legend" aria-hidden="true">
+            <span class="leg leg-risk">Risiko</span>
+            <span class="leg leg-warn">Achtung</span>
+            <span class="leg leg-hint">Hinweis</span>
+          </div>
+          <div id="previewRich" class="preview-box preview-rich" aria-label="Markierte Vorschau"></div>
+
+          <h3 class="insights-subh">LinkedIn-Format (Beispiel)</h3>
+          <p class="preview-micro">
+            Erste Zeile mit <code>**…**</code> (viele Clients: fett) — nur als Beispiel; kurz in der LinkedIn-App
+            prüfen.
+          </p>
+          <label for="linkedInExampleFormat" class="sr-only">LinkedIn-Beispieltext</label>
+          <textarea id="linkedInExampleFormat" class="preview-li-ta" readonly rows="8" spellcheck="false"></textarea>
+          <div class="row" style="margin-top: 0.5rem">
+            <button type="button" class="ghost" data-copy="linkedInExampleFormat">Beispiel kopieren</button>
+          </div>
+        </div>
+      </section>
+
+      <details class="expert">
+        <summary>Technische Details &amp; volle Checklisten</summary>
+        <div class="expert-inner">
+          <div class="expert-block">
+            <h3 class="expert-h">Eignung (Schlagzeile / Nachricht / Feed / Artikel)</h3>
+            <p class="style-note">Automatisch aus Länge, Absätzen und typischen Einladungs-Mustern.</p>
+            <div id="kindChips" class="kind-chips" aria-live="polite"></div>
+            <p id="kindDetail" class="kind-detail"></p>
+          </div>
+
+          <div class="expert-block" id="feedPreviewSection" hidden>
+            <h3 class="expert-h">Feed-Schnipsel (Annäherung)</h3>
+            <p class="style-note">
+              Nur bei Eignung <strong>Feed-Post</strong> oder <strong>Artikel</strong> — erster Absatz, Kürzung wie vor „mehr“ (~200
+              Zeichen, Wortgrenze).
+            </p>
+            <div class="meter">
+              <span>Erste Zeile (im 1. Absatz)</span>
+              <span class="ct" id="firstLineCount"></span>
+            </div>
+            <div id="previewLine" class="preview-box" aria-live="polite"></div>
+          </div>
+
+          <div class="expert-block">
+            <h3 class="expert-h">Struktur &amp; Stimmung (NLP)</h3>
+            <p class="style-note">
+              <a href="https://www.npmjs.com/package/compromise" rel="noopener noreferrer">compromise</a>
+              und
+              <a href="https://www.npmjs.com/package/sentiment" rel="noopener noreferrer">sentiment</a>
+              per CDN — Deutsch wirkt im AFINN-Score oft neutraler.
+            </p>
+            <div id="nlpInsights" class="metrics" aria-live="polite"></div>
+          </div>
+
+          <div class="expert-block" id="checklistSection">
+            <h3 class="expert-h">Checklisten (automatisch)</h3>
+            <p class="style-note">Bewertung nur aus dem Text — keine Häkchen, kein Speichern von Status.</p>
+
+            <h4 class="check-h3">Best Practices — Aufbau &amp; Taktik</h4>
+            <div class="progress-wrap">
+              <div
+                id="bestProgressTrack"
+                class="progress-track"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+                aria-valuetext=""
+              >
+                <div id="bestProgressFill" class="progress-fill best" aria-hidden="true"></div>
+              </div>
+              <p class="progress-label" id="bestProgressLabel"></p>
+            </div>
+            <ul id="bestList" class="check-list"></ul>
+
+            <h4 class="check-h3">No-Gos — vor Livegang prüfen</h4>
+            <div class="progress-wrap">
+              <div
+                id="nogoProgressTrack"
+                class="progress-track"
+                role="progressbar"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+                aria-valuetext=""
+              >
+                <div id="nogoProgressFill" class="progress-fill nogo" aria-hidden="true"></div>
+              </div>
+              <p class="progress-label" id="nogoProgressLabel"></p>
+            </div>
+            <div id="nogoBanner" class="nogo-banner" hidden>
+              Die Heuristik meldet mindestens ein <strong>Risiko</strong> — vor Veröffentlichung kurz gegenprüfen (kein Ersatz für
+              juristische/inhaltliche Review).
+            </div>
+            <ul id="nogoList" class="check-list"></ul>
+          </div>
+
+          <div class="expert-block">
+            <h3 class="expert-h">Stolperfallen &amp; Stil</h3>
+            <p class="style-note">
+              Kein „KI-Detektor“ — Muster markieren, nicht verurteilen.
+            </p>
+            <ul class="hint-list" id="styleHints"></ul>
+          </div>
+
+          <div class="expert-block">
+            <h3 class="expert-h">Lesbarkeit</h3>
+            <p class="metrics" id="readMetrics"></p>
+          </div>
+        </div>
+      </details>
+    </main>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
