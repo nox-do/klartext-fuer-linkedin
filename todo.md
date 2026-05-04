@@ -6,6 +6,7 @@ Nützliche Hilfe für LinkedIn-Nutzer **ohne** Developer-App, Login oder Server:
 
 ## Änderungen
 
+- **2026-05-04:** Git-Repository initialisiert, Branch `main`, erster Commit (lokale Analyse-App).
 - **2026-05-04:** Initiales Gerüst (OAuth-PoC) — verworfen.
 - **2026-05-04:** `start.sh` — lokaler HTTP-Server.
 - **2026-05-04:** Pivot: `index.html` + `app.js` = LinkedIn-Texthelfer + „One-Pager-Macht“-`<details>`.
