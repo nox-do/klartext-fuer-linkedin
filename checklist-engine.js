@@ -22,6 +22,8 @@
 /** @typedef {'full'|'partial'|'none'} AutoSupport */
 /** @typedef {'pass'|'hint'|'warn'|'risk'|'na'} Signal */
 
+import { firstLine, firstParagraph } from "./text-utils.js";
+
 export const BEST_ITEMS = [
   "Hook: Die erste Zeile macht neugierig (Nutzen/Frage), nicht nur interner Kontext.",
   "Struktur: kurze Absätze / Leerzeilen — Mobile-Scannen möglich.",
@@ -40,19 +42,6 @@ export const NOGO_ITEMS = [
 ];
 
 const REF_FEED_CHARS = 3000;
-
-function firstLine(text) {
-  const t = text.replace(/\r\n/g, "\n");
-  const i = t.indexOf("\n");
-  return (i === -1 ? t : t.slice(0, i)).trim();
-}
-
-function firstParagraph(text) {
-  const t = text.replace(/\r\n/g, "\n").trim();
-  if (!t) return "";
-  const m = t.match(/^([\s\S]*?)(?:\n\s*\n|$)/);
-  return (m ? m[1] : t).trim();
-}
 
 /**
  * @param {string} raw

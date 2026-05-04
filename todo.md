@@ -6,6 +6,7 @@ Nützliche Hilfe für LinkedIn-Nutzer **ohne** Developer-App, Login oder Server:
 
 ## Änderungen
 
+- **2026-05-04:** Refactoring: `text-utils.js` (gemeinsame Text-Hilfen), `constants.js`, `kind.js`, `stolper.js`, `signal-stream.js`, `preview-render.js`, `nlp-panel.js`; `checklist-engine` nutzt `text-utils` (kein Duplikat firstLine/firstParagraph mehr); `app.js` nur Orchestrierung.
 - **2026-05-04:** Git-Repository initialisiert, Branch `main`, erster Commit (lokale Analyse-App).
 - **2026-05-04:** Initiales Gerüst (OAuth-PoC) — verworfen.
 - **2026-05-04:** `start.sh` — lokaler HTTP-Server.
