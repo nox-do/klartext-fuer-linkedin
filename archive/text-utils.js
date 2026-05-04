@@ -1,6 +1,9 @@
 /** Reine Text-Hilfen (kein DOM) — von Checkliste & UI gemeinsam genutzt. */
 
-export const FEED_FOLD_CHARS = 200;
+import { FEED_FOLD_CHARS } from "./constants.js";
+import { resolveFeedFoldTeaser } from "./feed-snippet-ranker.js";
+
+export { FEED_FOLD_CHARS };
 
 export function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -38,13 +41,7 @@ export function stdev(nums) {
   return Math.sqrt(v);
 }
 
-/** Gekürzte Vorschau ähnlich Feed „vor Mehr anzeigen“ */
+/** Gekürzte Vorschau ähnlich Feed „vor Mehr anzeigen“ — Snippet-Ranker mit Fallback auf 1. Absatz. */
 export function linkedInFeedTeaser(raw) {
-  const para = firstParagraph(raw);
-  if (!para) return "";
-  if (para.length <= FEED_FOLD_CHARS) return para;
-  let cut = para.slice(0, FEED_FOLD_CHARS - 1);
-  const sp = cut.lastIndexOf(" ");
-  if (sp > FEED_FOLD_CHARS * 0.55) cut = cut.slice(0, sp);
-  return `${cut.trimEnd()}…`;
+  return resolveFeedFoldTeaser(raw, FEED_FOLD_CHARS).teaser;
 }

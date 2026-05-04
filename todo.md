@@ -1,36 +1,23 @@
-# One-Pager: LinkedIn-Texthelfer
+# LinkedIn-Texthelfer — Neuaufbau
 
 ## Zweck
 
-Nützliche Hilfe für LinkedIn-Nutzer **ohne** Developer-App, Login oder Server: **ein** Eingabefeld, daraus abgeleitete Eignung (Schlagzeile / Nachricht / Feed / Artikel), Lesbarkeit, NLP (compromise + sentiment), Checklisten. Zeigt, was statische Seiten lokal können.
+LinkedIn-Text als Eingabe, lokale Heuristiken & Hilfen — saubere Architektur neu strukturieren (nach PoC im Archiv).
 
 ## Änderungen
 
-- **2026-05-04:** Refactoring: `text-utils.js` (gemeinsame Text-Hilfen), `constants.js`, `kind.js`, `stolper.js`, `signal-stream.js`, `preview-render.js`, `nlp-panel.js`; `checklist-engine` nutzt `text-utils` (kein Duplikat firstLine/firstParagraph mehr); `app.js` nur Orchestrierung.
-- **2026-05-04:** Git-Repository initialisiert, Branch `main`, erster Commit (lokale Analyse-App).
-- **2026-05-04:** Initiales Gerüst (OAuth-PoC) — verworfen.
-- **2026-05-04:** `start.sh` — lokaler HTTP-Server.
-- **2026-05-04:** Pivot: `index.html` + `app.js` = LinkedIn-Texthelfer + „One-Pager-Macht“-`<details>`.
-- **2026-05-04:** Feed erste Zeile (Vorschau + Länge), Stolperfallen/Stil-Heuristiken (Buzzwords, CTA, Hashtags, Satzrhythmus, Einladung).
-- **2026-05-04:** Checklisten nur noch automatisch (kein Tap, kein `sessionStorage`); Balken aus Heuristik-Scores; Banner bei Auto-`risk`.
-- **2026-05-04:** Fortschrittsbalken bei leerem Text 0 % (vorher fälschlich ~35 % durch gewichtetes `na`).
-- **2026-05-04:** Sektion „Struktur & Stimmung“: dynamischer Import von `compromise` + `sentiment` (esm.sh); Content-Density, AFINN-Tonality, Hook-Score (heuristisch + Snippet), Pattern (?, Emoji, Hashtags).
-- **2026-05-04:** UI vereinfacht: nur `draft`-Textarea; Empfehlung aus Länge + Struktur + Einladungs-Signalen (`deriveKind`); drei Felder entfernt.
-- **2026-05-04:** Feed-Vorschau nur bei Eignung Feed/Artikel; `linkedInFeedTeaser` (~200 Zeichen, 1. Absatz); Stil-Hinweis erste Zeile bezieht sich auf 1. Absatz.
-- **2026-05-04:** `checklist-engine.js` — Checklisten-Heuristiken; UI: Karten mit Signal-Band + Unterstützungsgrad.
-- **2026-05-04:** UI: Footer „One-Pager-Macht“ entfernt; ruhiger Einstieg (nur Textfeld). Bei Inhalt: Sektion „Was uns auffällt“ mit priorisierter `signalStream` (Eignung, No-Gos, Best-practice-Warnungen, Feed-Schnipsel, Stil). Volle Checklisten, NLP, Lesbarkeit, Eignungs-Chips und Feed-Box in `<details>` „Technische Details“.
-- **2026-05-04:** Copy „Was uns auffällt“: Annahme LinkedIn-Kontext (Kontakt, Post, Artikel …), Ergebnis als Auffälligkeiten + Ideen, Abgrenzung „kein Urteil / mechanische Lesart“.
-- **2026-05-04:** Vorschau unter „Was uns auffällt“: farbige Highlights (Checklist-Signale + Buzzwords als Hinweis), `collectChecklistHighlightSpans` in `checklist-engine.js`. LinkedIn-Beispiel: erste Zeile `**fett**`, Absätze; readonly-Feld + Kopieren.
+- **2026-05-04:** Git-Commit `76056ae` — Neuaufbau AP0–AP1, Snippet unter `src/`, Zielbild (Stand vor AP2).
+- **2026-05-04:** Zielbild: AP6/AP10-Testbefehle an Ist-Skripte angepasst; §9 Modulbaum repariert (ein Block) + Hinweise Skripte/`preview`.
+- **2026-05-04:** Snippet-Ranker nach `src/preview/feed-snippet-ranker.js`, `FEED_FOLD_CHARS` → `src/domain/fold-constants.js`; Verify nur noch `src/`. `archive/feed-snippet-ranker.js` = Re-Export. Zielbild AP6 + §9/§10.0 angepasst.
+- **2026-05-04:** Feed-Snippet-Referenz: `tests/fixtures/feed-snippet-cases.mjs`, `scripts/verify-feed-snippet.mjs`, `verify.mjs feed-snippet`.
+- **2026-05-04:** Zielbild §9 / §10.0 / §14 / §17: Umsetzungsstand, Checkboxen AP0–AP1, nächster Schritt AP2, Tech-Stack festgehalten.
+- **2026-05-04:** **AP1 Review-Findings:** `src/core/sentence-fallback.js` (testbarer Intl-Fallback), Intl-Pfad `startsWith(piece, cursor)` vor `indexOf`, Tests (`""`, Evidence für Satzpaare + Multiline), `tests/unit/sentence-fallback.test.js`, `verify.mjs fallback`, Zielbild AP1 „Zeilen“ präzisiert.
+- **2026-05-04:** **AP1** umgesetzt: `src/core/normalize-text.js`, `src/core/segment-document.js` (`buildNormalizedDocument`), Domain-Stubs/Typen-JSDoc, `tests/unit/segment-document.test.js`, `scripts/verify.mjs segmenter`, `package.json` (`type: module`), `tests/fixtures/` angelegt.
+- **2026-05-04:** `linkedin_texthelfer_architektur_zielbild.md` ergänzt: Nutzerwert (2.4), Zwei-Ebenen-Analyse (4.1), Signale vs. Rollen, PostKind-Unschärfe, Fold-Stub-Vertrag, Priorität/topicBucket, Fixtures nur unter `tests/fixtures/`, AP0/1/8/14/16/17 angepasst.
+- **2026-05-04:** PoC nach `archive/` verschoben; Root = Grundstock (`start.sh`, `.gitignore`, `index.html`, `app.js`, README/todo). Neuaufbau offen.
 
-## Lokal testen
+## Lokal
 
 ```bash
 ./start.sh
 ```
-
-Dann URL aus der Ausgabe öffnen. (Auch ohne Server: später alles in eine HTML-Datei inlinen.)
-
-## Später
-
-- Optional: gesamtes JS/CSS inline für Single-File-Hosting.
-- Zeichenlimits an aktuelle LinkedIn-Hilfe anbinden, wenn ihr eine verlässliche Quelle habt.

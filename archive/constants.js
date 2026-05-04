@@ -1,5 +1,8 @@
 /** Geteilte Schwellen & Limits (UI + Heuristiken). */
 
+/** ~sichtbarer Text im Feed vor „mehr“ (Annäherung) */
+export const FEED_FOLD_CHARS = 200;
+
 export const DRAFT_MAX = 12000;
 export const REF_HEADLINE = 220;
 export const REF_INVITE = 300;
