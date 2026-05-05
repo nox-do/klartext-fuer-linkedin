@@ -27,6 +27,7 @@ node scripts/verify.mjs roles
 node scripts/verify.mjs post-model
 node scripts/verify.mjs rules
 node scripts/verify.mjs recommendations
+node scripts/verify.mjs golden
 ```
 
 oder `npm test` (alle Dateien unter `tests/unit/`).

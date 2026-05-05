@@ -97,8 +97,17 @@ if (cmd === "feed-snippet-model") {
   process.exit(r.status === 0 ? 0 : r.status ?? 1);
 }
 
+if (cmd === "golden") {
+  const r = spawnSync(
+    "node",
+    ["--test", join(root, "tests/unit/golden-recommendations.test.js")],
+    { stdio: "inherit", cwd: root }
+  );
+  process.exit(r.status === 0 ? 0 : r.status ?? 1);
+}
+
 console.error(`Unbekannter Befehl: ${cmd || "(leer)"}`);
 console.error(
-  "Nutzung: node scripts/verify.mjs segmenter | fallback | feed-snippet | feed-snippet-model | surface | signals | roles | post-model | rules | recommendations"
+  "Nutzung: node scripts/verify.mjs segmenter | fallback | feed-snippet | feed-snippet-model | surface | signals | roles | post-model | rules | recommendations | golden"
 );
 process.exit(1);
