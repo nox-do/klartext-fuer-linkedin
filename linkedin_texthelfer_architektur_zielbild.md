@@ -668,7 +668,7 @@ scripts/
 
 | AP | Status | Kurz |
 |----|--------|------|
-| **AP0** | **erledigt** | Archiv, README, Struktur; **Feed-Snippet-Referenz:** `tests/fixtures/feed-snippet-cases.mjs`, Runner `scripts/verify-feed-snippet.mjs` / `verify.mjs feed-snippet`; **Ranker-Kanon:** `src/preview/feed-snippet-ranker.js`, Fold-Länge `src/domain/fold-constants.js` (`archive/feed-snippet-ranker.js` nur noch Re-Export für alte Pfade). |
+| **AP0** | **erledigt** | Projekt-Reset, README, Struktur; **Feed-Snippet-Referenz:** `tests/fixtures/feed-snippet-cases.mjs`, Runner `scripts/verify-feed-snippet.mjs` / `verify.mjs feed-snippet`; **Ranker-Kanon:** `src/preview/feed-snippet-ranker.js`, Fold-Länge `src/domain/fold-constants.js`. |
 | **AP1** | **erledigt** | `normalizeText`, `buildNormalizedDocument`, Intl + Fallback, Zeichenoffsets, Tests (`verify.mjs segmenter` / `fallback`, `npm test`). |
 | **AP2** | **erledigt** | `extract-surface-features.js`, `src/utils/regex.js` + `text-metrics.js`, `thresholds.js`, Surface je Segment in `buildNormalizedDocument`, `verify.mjs surface`; „lange Sätze“ über `isLongSegmentSurface(surface)` + Schwellen (kein extra §5.5-Feld). |
 | **AP3** | **erledigt** | `extract-signal-scores.js`, `src/utils/signal-patterns.js` (DE-first), Signale 0–1 je Segment, `verify.mjs signals`; optional Debug-Treffer später. Surface `hasQuestion` ohne URL-Query-`?` (§5.5). **Nacharbeit:** §5.6 (P1/P2). |
@@ -692,16 +692,16 @@ Alte Dateien sichern, Projekt neu strukturieren, alte Erkenntnisse nicht verlier
 
 ### Aufgaben
 
-- [x] bestehenden Stand unter **`archive/`** ablegen (optional Unterordner pro Snapshot, z. B. `archive/prototype-2026-05-04/`, oder flach `archive/` — konsistent halten)
+- [x] bestehenden Stand vor Neuaufbau historisch gesichert (Snapshot vom 2026-05-04)
 - [x] neues `README.md` mit Zielbild / Start anlegen
 - [x] `src/`, `tests/` (inkl. `tests/fixtures/`), `scripts/` anlegen
-- [x] bisherigen Feed-Snippet-Test aus dem Archiv als Referenzfall in `tests/fixtures/` vorsehen *(Kanone: `tests/fixtures/feed-snippet-cases.mjs`; Duplikat im Archiv unverändert als historische Referenz.)*
+- [x] bisherigen Feed-Snippet-Test als Referenzfall in `tests/fixtures/` vorsehen *(Kanone: `tests/fixtures/feed-snippet-cases.mjs`).*
 - [x] alte Module nur als Inspirationsquelle nutzen, nicht direkt weiterwachsen lassen
 
 ### Akzeptanzkriterien
 
 - [x] App startet wieder minimal lokal
-- [x] Archiv ist vorhanden
+- [x] Historischer Stand ist dokumentiert
 - [x] neue Projektstruktur ist sichtbar
 - [x] keine alte DOM-Orchestrierungslogik im neuen Kern *(Root-`app.js` nur Platzhalter)*
 
@@ -710,7 +710,6 @@ Alte Dateien sichern, Projekt neu strukturieren, alte Erkenntnisse nicht verlier
 Manuell:
 
 ```bash
-ls archive
 ls src tests tests/fixtures scripts
 ```
 

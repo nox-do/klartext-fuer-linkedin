@@ -114,6 +114,7 @@
  * @property {number} hookStrength
  * @property {number} thesisStrength
  * @property {number|null} thesisPosition — 0–1 relativ zu `normalized.length`, sonst `null`
+ * @property {string|null} strongestThesisSegmentId
  * @property {number} problemStrength
  * @property {number} benefitStrength
  * @property {number} ctaStrength

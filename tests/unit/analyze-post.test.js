@@ -44,6 +44,12 @@ test("kind override headline", () => {
   assert.equal(post.kindConfidence, 1);
 });
 
+test("kind override article bleibt immer maßgeblich", () => {
+  const post = analyzePost("Kurzer Text.", { kind: "article" });
+  assert.equal(post.kind, "article");
+  assert.equal(post.kindConfidence, 1);
+});
+
 test("leerer Text — unknown, keine Exception", () => {
   const post = analyzePost("   ");
   assert.equal(post.kind, "unknown");
@@ -53,9 +59,19 @@ test("leerer Text — unknown, keine Exception", () => {
   assert.ok(post.risks.some((r) => r.code === "empty_text"));
 });
 
-test("Artikel-Heuristik bei langem mehrabsatzigem Text", () => {
-  const paras = Array.from({ length: 4 }, (_, i) => `Absatz ${i + 1}. `.repeat(40)).join("\n\n");
+test("Langer Feed mit vier Absätzen bleibt feed", () => {
+  const paras = Array.from({ length: 4 }, (_, i) => `Absatz ${i + 1}. `.repeat(45)).join("\n\n");
   const post = buildPostModel(paras, { localeHint: "de" });
+  assert.ok(post.metrics.charCount > 1200);
+  assert.equal(post.kind, "feed");
+});
+
+test("Sehr langer Text wird als article erkannt", () => {
+  const paras = Array.from({ length: 6 }, (_, i) => `Absatz ${i + 1} ` + "Wort ".repeat(120)).join("\n\n");
+  const post = buildPostModel(paras, { localeHint: "de" });
+  assert.ok(post.metrics.paragraphCount >= 6);
+  assert.ok(post.metrics.charCount > 3500);
+  assert.ok(post.metrics.wordCount >= 550);
   assert.equal(post.kind, "article");
 });
 
@@ -103,4 +119,22 @@ test("thesisPosition null oder 0–1", () => {
   if (post.structure.thesisPosition !== null) {
     assert.ok(post.structure.thesisPosition >= 0 && post.structure.thesisPosition <= 1);
   }
+});
+
+test("strongestThesisSegmentId ist null bei leerem Text", () => {
+  const post = analyzePost("   ");
+  assert.equal(post.structure.strongestThesisSegmentId, null);
+});
+
+test("strongestThesisSegmentId verweist auf existierendes Segment", () => {
+  const raw =
+    "Ich starte mit Kontext und weiteren Beobachtungen aus mehreren Entwürfen. " +
+    "Viele Texte erklären zuerst zu viel und verlieren dadurch Aufmerksamkeit. " +
+    "Nicht mehr Kontext, sondern eine frühe Kernthese macht den Unterschied.";
+
+  const post = analyzePost(raw, { kind: "feed", localeHint: "de" });
+  const id = post.structure.strongestThesisSegmentId;
+
+  assert.ok(id);
+  assert.ok(post.segments.some((s) => s.id === id));
 });

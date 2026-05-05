@@ -78,6 +78,43 @@ export const EXAMPLE_PATTERNS = [
 /** Rhetorische Frage / Leserbezug (CTA-Heuristik) */
 export const CTA_QUESTION_LEAD = /\b(Was|Wie|Welche|Warum|Wer|Wo|Welchen|Welchem)\b/i;
 export const CTA_AUDIENCE_PRONOUN = /\b(ihr|du|euch|uns|dir|dich|euer|dein)\b/i;
+export const CTA_PATTERNS = {
+  dialog: [
+    /\bwie\s+(siehst|seht)\s+(du|ihr)\s+das\b/i,
+    /\bwas\s+(denkst|denkt)\s+(du|ihr)\b/i,
+    /\bwelche\s+erfahrung(en)?\s+hast\s+du\b/i,
+  ],
+  comment: [
+    /\bschreib(e|t)?\s+(es\s+)?(in\s+)?die\s+kommentare\b/i,
+    /\bteile\s+(deine|eure)\s+(meinung|erfahrung)\b/i,
+    /\bkommentier(e|t)?\s+(gern|gerne|mit)\b/i,
+  ],
+  dm: [
+    /\bschreib(e)?\s+mir\s+(eine\s+)?dm\b/i,
+    /\bmeld(e)?\s+dich\s+per\s+dm\b/i,
+    /\bper\s+dm\s+(melden|schreiben)\b/i,
+  ],
+  follow: [
+    /\bfolge\s+mir\s+für\b/i,
+    /\bfolg(e|t)\s+mir,\s+wenn\b/i,
+    /\babonnier(e)?\s+(mich|meinen\s+newsletter)\b/i,
+  ],
+  resource: [
+    /\blink\s+im\s+(ersten\s+)?kommentar\b/i,
+    /\bdie\s+(checkliste|vorlage|template)\s+(gibt|findest)\s+du\b/i,
+    /\bdownload\s+(im|unter|hier)\b/i,
+  ],
+  reflection: [
+    /\bprüf(e)?\s+(beim|in deinem|vor dem)\b/i,
+    /\bachte\s+(beim|in deinem|vor dem)\b/i,
+    /\bversuch(e)?\s+beim\s+nächsten\s+mal\b/i,
+  ],
+  contact: [
+    /\bmeld(e)?\s+dich,\s+wenn\b/i,
+    /\bsprich\s+mich\s+an,\s+wenn\b/i,
+    /\bwenn\s+du\s+.*\s+(brauchst|suchst),?\s+meld(e)?\s+dich\b/i,
+  ],
+};
 
 /** Buzzword / Corporate-Sprech (heuristisch) */
 export const BUZZWORD_PATTERN =

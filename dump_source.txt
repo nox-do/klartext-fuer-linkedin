@@ -1,0 +1,3189 @@
+#/src/core/analyze-post.js
+/** AP5 — Einstieg für Analysen (Re-Export). */
+export { analyzePost, buildPostModel, flattenSegments, POST_MODEL_VERSION } from "./build-post-model.js";
+
+#/src/core/build-post-model.js
+/**
+ * AP5 — PostModel aus NormalizedDocument (§5.8). Keine Regelpakete, nur Aggregation + Heuristiken.
+ */
+
+import { buildNormalizedDocument } from "./segment-document.js";
+import { FEED_FOLD_CHARS } from "../domain/fold-constants.js";
+import {
+  BUILDER_SENSITIVE_SIGNAL_THRESHOLD,
+  KIND_ARTICLE_MIN_CHARS,
+  KIND_ARTICLE_MIN_PARAGRAPHS,
+  KIND_ARTICLE_MIN_WORDS,
+  KIND_CONFIDENCE_ARTICLE,
+  KIND_CONFIDENCE_EMPTY,
+  KIND_CONFIDENCE_FEED_LONG,
+  KIND_CONFIDENCE_FEED_LONG_WORDS,
+  KIND_CONFIDENCE_FEED_SHORT,
+  KIND_CONFIDENCE_HEADLINE,
+  KIND_CONFIDENCE_INVITE,
+  KIND_CONFIDENCE_USER_OVERRIDE,
+  KIND_HEADLINE_MAX_CHARS,
+  KIND_HEADLINE_MAX_PARAGRAPHS,
+  KIND_HEADLINE_MAX_WORDS,
+  KIND_INVITE_HINT_RE,
+  KIND_INVITE_MAX_WORDS,
+  STRUCTURE_CTA_BLEND_LAST_THIRD,
+  STRUCTURE_CTA_BLEND_MAX,
+  STRUCTURE_HOOK_BLEND_FIRST,
+  STRUCTURE_HOOK_BLEND_MAX,
+  STRUCTURE_HOOK_MAX_DAMPEN,
+  STRUCTURE_RISK_BLEND_ROLE,
+  STRUCTURE_RISK_BLEND_SIGNAL,
+  STRUCTURE_ROLE_PEAK_SCALE,
+  STRUCTURE_SCAN_BASE_LONG,
+  STRUCTURE_SCAN_BASE_MID,
+  STRUCTURE_SCAN_BASE_SHORT,
+  STRUCTURE_SCAN_PARA_CAP,
+  STRUCTURE_SCAN_PARA_STEP,
+  STRUCTURE_SCAN_WORD_LONG,
+  STRUCTURE_SCAN_WORD_SHORT,
+  STRUCTURE_SUBSTANCE_SCALE,
+  STRUCTURE_THESIS_PEAK_SCALE,
+  TOPIC_DRIFT_SENTENCE_HIGH,
+  TOPIC_DRIFT_SENTENCE_MEDIUM,
+} from "../domain/role-and-structure-constants.js";
+import { LONG_SENTENCE_CHARS, LONG_SENTENCE_WORDS } from "../domain/thresholds.js";
+import {
+  resolveFeedFoldTeaser,
+  resolveFeedSnippetFromPostModel,
+} from "./resolve-fold-teaser.js";
+
+export const POST_MODEL_VERSION = "0.1.2";
+
+/**
+ * @param {string} s
+ */
+function stableDocId(s) {
+  let h = 5381;
+  for (let i = 0; i < Math.min(s.length, 2000); i++) {
+    h = ((h << 5) + h) ^ s.charCodeAt(i);
+  }
+  return `doc-${(h >>> 0).toString(36)}`;
+}
+
+/**
+ * @param {number} x
+ */
+function clamp01(x) {
+  if (Number.isNaN(x) || x < 0) return 0;
+  if (x > 1) return 1;
+  return x;
+}
+
+/**
+ * @param {import('../domain/types.js').NormalizedDocument} doc
+ * @returns {import('../domain/types.js').Segment[]}
+ */
+export function flattenSegments(doc) {
+  /** @type {import('../domain/types.js').Segment[]} */
+  const out = [];
+  for (const p of doc.paragraphs) {
+    for (const s of p.sentences) out.push(s);
+  }
+  return out;
+}
+
+/**
+ * @param {import('../domain/types.js').Segment[]} segments
+ */
+function sentenceSegmentsOnly(segments) {
+  return segments.filter((s) => s.type === "sentence");
+}
+
+/**
+ * @param {string} normalized
+ * @param {import('../domain/types.js').DocumentMetrics} metrics
+ * @param {import('../domain/types.js').AnalyzePostOptions} options
+ * @returns {import('../domain/types.js').PostKind}
+ */
+function inferPostKind(normalized, metrics, options) {
+  if (options.kind) return options.kind;
+  if (!metrics.charCount) return "unknown";
+  /** Einladungen oft kurz: vor „Headline“, damit Vernetzungs-Kontext nicht fälschlich als Titelzeile gilt (§5.9). */
+  if (KIND_INVITE_HINT_RE.test(normalized) && metrics.wordCount < KIND_INVITE_MAX_WORDS) {
+    return "invite";
+  }
+  if (
+    metrics.wordCount <= KIND_HEADLINE_MAX_WORDS &&
+    metrics.paragraphCount <= KIND_HEADLINE_MAX_PARAGRAPHS &&
+    metrics.charCount < KIND_HEADLINE_MAX_CHARS
+  ) {
+    return "headline";
+  }
+  /**
+   * LinkedIn-Default: lange Posts bleiben Feed,
+   * außer sie sind wirklich artikelartig.
+   */
+  if (
+    metrics.paragraphCount >= KIND_ARTICLE_MIN_PARAGRAPHS &&
+    metrics.charCount > KIND_ARTICLE_MIN_CHARS &&
+    metrics.wordCount >= KIND_ARTICLE_MIN_WORDS
+  ) {
+    return "article";
+  }
+  return "feed";
+}
+
+/**
+ * Nutzerhilfe: bei Unsicherheit niedriger Wert → AP7 soll format-spezifische Packs nicht „hart“ feuern (§5.9).
+ * @param {import('../domain/types.js').PostKind} kind
+ * @param {import('../domain/types.js').DocumentMetrics} metrics
+ * @param {import('../domain/types.js').AnalyzePostOptions} options
+ */
+function inferKindConfidence(kind, metrics, options) {
+  if (options.kind) return KIND_CONFIDENCE_USER_OVERRIDE;
+  if (!metrics.charCount) return KIND_CONFIDENCE_EMPTY;
+  if (kind === "article") return KIND_CONFIDENCE_ARTICLE;
+  if (kind === "headline") return KIND_CONFIDENCE_HEADLINE;
+  if (kind === "invite") return KIND_CONFIDENCE_INVITE;
+  if (kind === "feed") {
+    return metrics.wordCount >= KIND_CONFIDENCE_FEED_LONG_WORDS
+      ? KIND_CONFIDENCE_FEED_LONG
+      : KIND_CONFIDENCE_FEED_SHORT;
+  }
+  return KIND_CONFIDENCE_FEED_SHORT;
+}
+
+/**
+ * @param {import('../domain/types.js').Segment[]} sentenceSegs
+ * @param {number} normLen
+ * @returns {import('../domain/types.js').StructureModel}
+ */
+function computeStructure(sentenceSegs, normLen) {
+  if (sentenceSegs.length === 0) {
+    return {
+      hookStrength: 0,
+      thesisStrength: 0,
+      thesisPosition: null,
+      strongestThesisSegmentId: null,
+      problemStrength: 0,
+      benefitStrength: 0,
+      ctaStrength: 0,
+      scanability: 0,
+      substance: 0,
+      risk: 0,
+      topicDrift: "unknown",
+    };
+  }
+
+  const maxRole = (key) => Math.max(0, ...sentenceSegs.map((s) => s.roles[key]));
+
+  let bestThesis = 0;
+  let thesisCharStart = /** @type {number|null} */ (null);
+  let strongestThesisSegmentId = /** @type {string|null} */ (null);
+  for (const s of sentenceSegs) {
+    if (s.roles.thesis > bestThesis) {
+      bestThesis = s.roles.thesis;
+      thesisCharStart = s.charStart;
+      strongestThesisSegmentId = s.id;
+    }
+  }
+
+  const thesisPosition =
+    normLen > 0 && thesisCharStart !== null ? clamp01(thesisCharStart / normLen) : null;
+
+  const n = sentenceSegs.length;
+  const ctaMax = maxRole("cta");
+  const lastThird = sentenceSegs.slice(Math.max(0, Math.floor((2 * n) / 3)));
+  const ctaLastThird = lastThird.length ? Math.max(0, ...lastThird.map((s) => s.roles.cta)) : 0;
+  const ctaStrength = clamp01(
+    STRUCTURE_CTA_BLEND_MAX * ctaMax + STRUCTURE_CTA_BLEND_LAST_THIRD * ctaLastThird,
+  );
+
+  const avgWords =
+    sentenceSegs.reduce((a, s) => a + s.surface.wordCount, 0) / sentenceSegs.length;
+  let scanBase =
+    avgWords < STRUCTURE_SCAN_WORD_SHORT
+      ? STRUCTURE_SCAN_BASE_SHORT
+      : avgWords < STRUCTURE_SCAN_WORD_LONG
+        ? STRUCTURE_SCAN_BASE_MID
+        : STRUCTURE_SCAN_BASE_LONG;
+  const uniqueParas = new Set(sentenceSegs.map((s) => s.paragraphIndex)).size;
+  const paraHint = Math.min(
+    STRUCTURE_SCAN_PARA_CAP,
+    Math.max(1, uniqueParas) * STRUCTURE_SCAN_PARA_STEP,
+  );
+  const scanability = clamp01(scanBase + paraHint);
+
+  const substanceRaw =
+    sentenceSegs.reduce(
+      (a, s) => a + (s.signals.proof + s.signals.specificity + s.signals.benefit) / 3,
+      0,
+    ) / sentenceSegs.length;
+  const substance = clamp01(substanceRaw * STRUCTURE_SUBSTANCE_SCALE);
+
+  const riskSig = Math.max(0, ...sentenceSegs.map((s) => s.signals.risk));
+  const riskRole = maxRole("risk");
+  const risk = clamp01(
+    STRUCTURE_RISK_BLEND_SIGNAL * riskSig + STRUCTURE_RISK_BLEND_ROLE * riskRole,
+  );
+
+  let topicDrift = /** @type {import('../domain/types.js').StructureModel['topicDrift']} */ ("low");
+  if (sentenceSegs.length > TOPIC_DRIFT_SENTENCE_HIGH) topicDrift = "high";
+  else if (sentenceSegs.length > TOPIC_DRIFT_SENTENCE_MEDIUM) topicDrift = "medium";
+
+  const hookFirst = sentenceSegs.length ? sentenceSegs[0].roles.hook : 0;
+  const hookMax = maxRole("hook");
+  const hookStrength = clamp01(
+    STRUCTURE_HOOK_BLEND_MAX * hookMax +
+      STRUCTURE_HOOK_BLEND_FIRST *
+        Math.max(hookFirst, hookMax * STRUCTURE_HOOK_MAX_DAMPEN),
+  );
+
+  return {
+    hookStrength,
+    thesisStrength: clamp01(bestThesis * STRUCTURE_THESIS_PEAK_SCALE),
+    thesisPosition,
+    strongestThesisSegmentId,
+    problemStrength: clamp01(maxRole("problem") * STRUCTURE_ROLE_PEAK_SCALE),
+    benefitStrength: clamp01(maxRole("benefit") * STRUCTURE_ROLE_PEAK_SCALE),
+    ctaStrength,
+    scanability,
+    substance,
+    risk,
+    topicDrift,
+  };
+}
+
+/**
+ * @param {string} raw
+ * @param {string} normalized
+ * @param {import('../domain/types.js').Paragraph[]} paragraphs
+ * @param {import('../domain/types.js').Segment[]} flatSegs
+ * @returns {import('../domain/types.js').FoldModel}
+ */
+function computeFold(raw, normalized, paragraphs, flatSegs) {
+  const firstLine = normalized.split("\n")[0]?.trim() ?? "";
+  const firstPara = paragraphs[0]?.text ?? "";
+  const postLike = { paragraphs, segments: flatSegs };
+  const fromSegments = resolveFeedSnippetFromPostModel(postLike, FEED_FOLD_CHARS);
+  let bestSnippetText = fromSegments.teaser;
+  let snippetSource = fromSegments.source;
+  let bestSnippetSegmentIds = fromSegments.segmentIds;
+
+  // Fallback für Grenzfälle ohne verwertbare Segmentkandidaten.
+  if (!bestSnippetText) {
+    const rawResolved = resolveFeedFoldTeaser(raw, FEED_FOLD_CHARS);
+    bestSnippetText = rawResolved.teaser;
+    snippetSource =
+      rawResolved.source === "ranked" || rawResolved.source === "ranked-weak"
+        ? "ranked_segment"
+        : "fallback";
+    bestSnippetSegmentIds = [];
+  }
+
+  if (!bestSnippetText && firstLine) {
+    bestSnippetText =
+      firstLine.length <= FEED_FOLD_CHARS
+        ? firstLine
+        : `${firstLine.slice(0, Math.max(0, FEED_FOLD_CHARS - 1)).trimEnd()}…`;
+    snippetSource = "first_line";
+  }
+
+  return {
+    approximateVisibleChars: FEED_FOLD_CHARS,
+    firstLine,
+    firstLineLength: firstLine.length,
+    firstParagraphLength: firstPara.length,
+    bestSnippetSegmentIds,
+    bestSnippetText,
+    snippetSource,
+  };
+}
+
+/**
+ * @param {import('../domain/types.js').Segment[]} sentenceSegs
+ * @param {string} normalized
+ */
+function collectRisks(sentenceSegs, normalized) {
+  /** @type {import('../domain/types.js').RiskFinding[]} */
+  const risks = [];
+  let seq = 0;
+  if (!normalized.trim()) {
+    risks.push({
+      id: `risk-${seq++}`,
+      code: "empty_text",
+      level: "warn",
+      message: "Text ist leer.",
+    });
+    return risks;
+  }
+
+  for (const s of sentenceSegs) {
+    if (s.signals.risk >= BUILDER_SENSITIVE_SIGNAL_THRESHOLD) {
+      risks.push({
+        id: `risk-${seq++}`,
+        code: "sensitive_keyword",
+        level: "risk",
+        message: "Mögliche heikle Begriffe (Signal).",
+        segmentId: s.id,
+      });
+    }
+  }
+
+  const longSeg = sentenceSegs.find(
+    (s) =>
+      s.surface.wordCount >= LONG_SENTENCE_WORDS || s.surface.length >= LONG_SENTENCE_CHARS,
+  );
+  if (longSeg) {
+    risks.push({
+      id: `risk-${seq++}`,
+      code: "long_sentence",
+      level: "hint",
+      message: "Sehr langer Satz — Lesbarkeit prüfen.",
+      segmentId: longSeg.id,
+    });
+  }
+
+  return risks;
+}
+
+/**
+ * @param {string | null | undefined} raw
+ * @param {import('../domain/types.js').AnalyzePostOptions} [options]
+ * @returns {import('../domain/types.js').PostModel}
+ */
+export function buildPostModel(raw, options = {}) {
+  const doc = buildNormalizedDocument(raw, {
+    localeHint: options.localeHint,
+    includeSentencePairs: options.includeSentencePairs === true,
+  });
+
+  const flatSegs = flattenSegments(doc);
+  const sentenceSegs = sentenceSegmentsOnly(flatSegs);
+  const kind = inferPostKind(doc.normalized, doc.metrics, options);
+  const kindConfidence = clamp01(inferKindConfidence(kind, doc.metrics, options));
+  const structure = computeStructure(sentenceSegs, doc.normalized.length);
+  const fold = computeFold(doc.raw, doc.normalized, doc.paragraphs, flatSegs);
+  const risks = collectRisks(sentenceSegs, doc.normalized);
+
+  /** @type {import('../domain/types.js').PostModel} */
+  const post = {
+    id: options.id ?? stableDocId(doc.normalized),
+    kind,
+    kindConfidence,
+    language: doc.language,
+    raw: doc.raw,
+    normalized: doc.normalized,
+    metrics: doc.metrics,
+    paragraphs: doc.paragraphs,
+    segments: flatSegs,
+    fold,
+    structure,
+    risks,
+    version: POST_MODEL_VERSION,
+  };
+
+  if (options.includeDebug === true) {
+    post.debug = {
+      sentenceSegmentCount: sentenceSegs.length,
+      totalSegmentCount: flatSegs.length,
+      topicDriftNote:
+        "topicDrift = Satzzahl-Heuristik (keine semantische Themen-Analyse), vgl. §5.11 Zielbild.",
+    };
+  }
+
+  return post;
+}
+
+/**
+ * Öffentliche API (Zielbild AP5).
+ * @param {string | null | undefined} raw
+ * @param {import('../domain/types.js').AnalyzePostOptions} [options]
+ * @returns {import('../domain/types.js').PostModel}
+ */
+export function analyzePost(raw, options) {
+  return buildPostModel(raw, options ?? {});
+}
+
+#/src/core/classify-roles.js
+/**
+ * AP4 — Rollen aus SignalScores, Position und wenigen Text-Hinweisen (Claim-Ansatz).
+ * Keine ML; mehrere Rollen > 0 gleichzeitig möglich.
+ */
+
+import {
+  CLAIM_HINT_MAX_CHARS,
+  CLAIM_HINT_WEIGHT_NICHT,
+  CLAIM_HINT_WEIGHT_SCHEITERT,
+  CONTEXT_NARRATIVE_RE,
+  DOC_SPAN_SINGLE_SENTENCE,
+  ROLE_BENEFIT,
+  ROLE_CONTEXT,
+  ROLE_CTA,
+  ROLE_EXAMPLE,
+  ROLE_FILLER,
+  ROLE_HOOK,
+  ROLE_PAIR_MULTIPLIER,
+  ROLE_PROBLEM,
+  ROLE_PROOF,
+  ROLE_RISK,
+  ROLE_THESIS,
+  ROLE_TRANSITION,
+} from "../domain/role-and-structure-constants.js";
+
+/**
+ * @typedef {Object} RoleClassificationContext
+ * @property {import('../domain/types.js').SegmentType} segmentType
+ * @property {number} docSentenceIndex — Index unter reinen `sentence`-Segmenten (0-basiert)
+ * @property {number} docSentenceCount — Anzahl `sentence`-Segmente gesamt
+ * @property {number} paragraphSentenceIndex — Satzindex im Absatz
+ * @property {number} paragraphSentenceCount — Sätze im Absatz
+ * @property {string} text — Segmenttext (nur für wenige narrative/Claim-Marker)
+ */
+
+/**
+ * @param {number} x
+ */
+function clamp01(x) {
+  if (Number.isNaN(x) || x < 0) return 0;
+  if (x > 1) return 1;
+  return x;
+}
+
+/**
+ * Erste-Satz-Claim ohne vollständiges Kontrast-Signal (§5.7 thesis vs. §5.6 contrast).
+ * @param {string} text
+ * @param {boolean} isFirstInDoc
+ */
+function claimSetupHint(text, isFirstInDoc) {
+  if (!isFirstInDoc || !text) return 0;
+  const t = text.trim();
+  if (t.length > CLAIM_HINT_MAX_CHARS) return 0;
+  let h = 0;
+  if (/\bnicht\b/i.test(t)) h += CLAIM_HINT_WEIGHT_NICHT;
+  if (/\bscheitert(e|)?\b/i.test(t) || /\bscheitern\b/i.test(t)) h += CLAIM_HINT_WEIGHT_SCHEITERT;
+  return clamp01(h);
+}
+
+/**
+ * @param {import('../domain/types.js').SurfaceFeatures} surface
+ * @param {import('../domain/types.js').SignalScores} signals
+ * @param {RoleClassificationContext} ctx
+ * @returns {import('../domain/types.js').RoleScores}
+ */
+export function classifyRoles(surface, signals, ctx) {
+  const text = ctx.text ?? "";
+  const pairTweak = ctx.segmentType === "sentence_pair" ? ROLE_PAIR_MULTIPLIER : 1;
+
+  const nDoc = ctx.docSentenceCount;
+  const isFirstInDoc = nDoc > 0 && ctx.docSentenceIndex === 0;
+  const isLastInDoc = nDoc > 0 && ctx.docSentenceIndex === nDoc - 1;
+  const nPara = ctx.paragraphSentenceCount;
+  const isLastInParagraph = nPara > 0 && ctx.paragraphSentenceIndex === nPara - 1;
+  const isMidParagraph = nPara > 1 && ctx.paragraphSentenceIndex > 0 && ctx.paragraphSentenceIndex < nPara - 1;
+
+  const docSpan = nDoc <= 1 ? DOC_SPAN_SINGLE_SENTENCE : ctx.docSentenceIndex / (nDoc - 1);
+
+  const claimHint = claimSetupHint(text, isFirstInDoc);
+
+  let thesis =
+    signals.contrast * ROLE_THESIS.contrast +
+    claimHint * ROLE_THESIS.claimHint +
+    (isFirstInDoc ? signals.pain * ROLE_THESIS.firstPain : 0);
+  thesis *= pairTweak;
+  thesis = clamp01(thesis);
+
+  let hook =
+    signals.contrast * ROLE_HOOK.contrast +
+    signals.cta * ROLE_HOOK.cta +
+    (isFirstInDoc ? ROLE_HOOK.firstBoost : 0);
+  hook += surface.hasQuestion ? ROLE_HOOK.hasQuestion : 0;
+  hook += surface.isAllCaps ? ROLE_HOOK.isAllCaps : 0;
+  hook += claimHint * ROLE_HOOK.claimHint;
+  hook *= pairTweak;
+  hook = clamp01(hook);
+
+  const problem = clamp01(signals.pain * ROLE_PROBLEM.pain + signals.risk * ROLE_PROBLEM.risk);
+
+  const benefit = clamp01(signals.benefit * ROLE_BENEFIT.scale);
+
+  let proof = clamp01(
+    signals.proof * ROLE_PROOF.proof +
+      signals.specificity * ROLE_PROOF.specificity +
+      signals.personal * ROLE_PROOF.personal,
+  );
+
+  const example = clamp01(signals.example * ROLE_EXAMPLE.scale);
+
+  let cta =
+    signals.cta * ROLE_CTA.signal +
+    (isLastInParagraph ? ROLE_CTA.lastParagraph : 0) +
+    (isLastInDoc ? ROLE_CTA.lastDoc : 0);
+  if (!surface.hasQuestion && signals.cta < ROLE_CTA.lowSignalThreshold) {
+    cta *= ROLE_CTA.noQuestionDampen;
+  }
+  cta = clamp01(cta);
+
+  const risk = clamp01(signals.risk * ROLE_RISK.scale);
+
+  let context = signals.personal * ROLE_CONTEXT.personal;
+  if (nDoc <= 1 || (docSpan > ROLE_CONTEXT.docSpanLow && docSpan < ROLE_CONTEXT.docSpanHigh)) {
+    context += ROLE_CONTEXT.midDocBonus;
+  }
+  if (CONTEXT_NARRATIVE_RE.test(text)) context += ROLE_CONTEXT.narrativeBonus;
+  context *= pairTweak;
+  context = clamp01(context);
+
+  const transition = clamp01(
+    (surface.startsWeak ? ROLE_TRANSITION.startsWeak : 0) +
+      (isMidParagraph ? ROLE_TRANSITION.midParagraph : 0) +
+      signals.contrast * ROLE_TRANSITION.contrast,
+  );
+
+  let filler = 0;
+  if (
+    surface.wordCount >= ROLE_FILLER.wordMin &&
+    signals.contrast < ROLE_FILLER.contrastMax &&
+    signals.pain < ROLE_FILLER.painMax &&
+    signals.cta < ROLE_FILLER.ctaMax
+  ) {
+    filler += ROLE_FILLER.add;
+  }
+  if (surface.startsWeak && surface.wordCount >= ROLE_FILLER.weakWordMin) filler += ROLE_FILLER.weakAdd;
+  filler = clamp01(filler);
+
+  return {
+    hook,
+    context,
+    thesis,
+    problem,
+    benefit,
+    example,
+    proof,
+    transition,
+    cta,
+    risk,
+    filler,
+  };
+}
+
+#/src/core/extract-signal-scores.js
+import {
+  BENEFIT_PATTERNS,
+  BUZZWORD_PATTERN,
+  CONTRAST_PATTERNS,
+  CTA_AUDIENCE_PRONOUN,
+  CTA_PATTERNS,
+  CTA_QUESTION_LEAD,
+  EXAMPLE_PATTERNS,
+  PAIN_PATTERNS,
+  PERSONAL_PATTERNS,
+  PROOF_PATTERNS,
+  RISK_KEYWORD_PATTERNS,
+  SPECIFICITY_PATTERNS,
+} from "../utils/signal-patterns.js";
+
+/**
+ * @param {number} x
+ */
+function clamp01(x) {
+  if (Number.isNaN(x) || x < 0) return 0;
+  if (x > 1) return 1;
+  return x;
+}
+
+/**
+ * @param {RegExp[]} patterns
+ * @param {string} text
+ */
+function countPatternMatches(patterns, text) {
+  let n = 0;
+  for (const re of patterns) {
+    if (re.test(text)) n++;
+  }
+  return n;
+}
+
+/**
+ * @param {string} text
+ */
+function scoreContrast(text) {
+  if (CONTRAST_PATTERNS[0].test(text)) return 0.88;
+  if (CONTRAST_PATTERNS[1].test(text)) return 0.76;
+  let s = 0;
+  for (let i = 2; i < CONTRAST_PATTERNS.length; i++) {
+    if (CONTRAST_PATTERNS[i].test(text)) s = Math.max(s, 0.44);
+  }
+  return s;
+}
+
+/**
+ * @param {string} text
+ */
+function scorePain(text) {
+  const hits = countPatternMatches(PAIN_PATTERNS, text);
+  if (hits === 0) return 0;
+  return clamp01(0.52 + (hits - 1) * 0.14);
+}
+
+/**
+ * @param {string} text
+ */
+function scoreBenefit(text) {
+  const hits = countPatternMatches(BENEFIT_PATTERNS, text);
+  if (hits === 0) return 0;
+  return clamp01(0.48 + (hits - 1) * 0.12);
+}
+
+/**
+ * @param {string} text
+ */
+function scorePersonal(text) {
+  if (countPatternMatches(PERSONAL_PATTERNS, text) === 0) return 0;
+  return 0.72;
+}
+
+/**
+ * @param {import('../domain/types.js').SurfaceFeatures} surface
+ * @param {string} text
+ */
+function scoreSpecificity(surface, text) {
+  let s = 0;
+  if (surface.hasNumber) s += 0.42;
+  if (surface.hasUrl) s += 0.22;
+  for (const re of SPECIFICITY_PATTERNS) {
+    if (re.test(text)) {
+      s += 0.28;
+      break;
+    }
+  }
+  return clamp01(s);
+}
+
+/**
+ * @param {string} text
+ */
+function scoreRisk(text) {
+  const hits = countPatternMatches(RISK_KEYWORD_PATTERNS, text);
+  if (hits === 0) return 0;
+  return clamp01(0.72 + hits * 0.12);
+}
+
+/**
+ * @param {import('../domain/types.js').SurfaceFeatures} surface
+ * @param {string} text
+ */
+function scoreCta(surface, text) {
+  const t = text.trim();
+  const ctaTypes = countCtaTypes(t);
+
+  if (ctaTypes.length > 0) {
+    const hasStrongIntent = ctaTypes.some((type) =>
+      ["comment", "dm", "follow", "resource", "contact"].includes(type),
+    );
+    if (hasStrongIntent) {
+      return clamp01(0.72 + (ctaTypes.length - 1) * 0.08);
+    }
+    return 0.58;
+  }
+
+  if (!surface.hasQuestion) return 0;
+  const lead = CTA_QUESTION_LEAD.test(t);
+  const aud = CTA_AUDIENCE_PRONOUN.test(t);
+  if (lead && aud) return 0.88;
+  if (lead && t.endsWith("?")) return 0.82;
+  if (aud && t.includes("?")) return 0.78;
+  return 0.5;
+}
+
+/**
+ * @param {string} text
+ */
+function countCtaTypes(text) {
+  /** @type {string[]} */
+  const found = [];
+  for (const [type, patterns] of Object.entries(CTA_PATTERNS)) {
+    if (patterns.some((re) => re.test(text))) found.push(type);
+  }
+  return found;
+}
+
+/**
+ * @param {import('../domain/types.js').SurfaceFeatures} surface
+ * @param {string} text
+ */
+function scoreProof(surface, text) {
+  let s = 0;
+  if (surface.hasNumber) s += 0.32;
+  if (countPatternMatches(PROOF_PATTERNS, text) > 0) s += 0.55;
+  return clamp01(s);
+}
+
+/**
+ * @param {string} text
+ */
+function scoreExample(text) {
+  for (const re of EXAMPLE_PATTERNS) {
+    if (re.test(text)) return 0.74;
+  }
+  return 0;
+}
+
+/**
+ * @param {string} text
+ */
+function scoreBuzzword(text) {
+  if (!BUZZWORD_PATTERN.test(text)) return 0;
+  return 0.62;
+}
+
+/**
+ * SignalScores aus Oberfläche + Textmustern (AP3, Zieldokument §5.6).
+ * Muster sind DE-first; `language` ist für spätere Lokalisierung reserviert.
+ *
+ * @param {import('../domain/types.js').SurfaceFeatures} surface
+ * @param {string} text — gleicher String wie bei `extractSurfaceFeatures`
+ * @param {import('../domain/types.js').DetectedLanguage} [_language]
+ * @returns {import('../domain/types.js').SignalScores}
+ */
+export function extractSignalScores(surface, text, _language = "unknown") {
+  const t = text ?? "";
+  return {
+    contrast: clamp01(scoreContrast(t)),
+    pain: clamp01(scorePain(t)),
+    benefit: clamp01(scoreBenefit(t)),
+    personal: clamp01(scorePersonal(t)),
+    specificity: clamp01(scoreSpecificity(surface, t)),
+    risk: clamp01(scoreRisk(t)),
+    cta: clamp01(scoreCta(surface, t)),
+    proof: clamp01(scoreProof(surface, t)),
+    example: clamp01(scoreExample(t)),
+    buzzword: clamp01(scoreBuzzword(t)),
+  };
+}
+
+#/src/core/extract-surface-features.js
+import { LONG_SENTENCE_CHARS, LONG_SENTENCE_WORDS } from "../domain/thresholds.js";
+import {
+  hasEmojiRun,
+  hasHashtag,
+  hasNumberLike,
+  hasQuestionMarkOutsideHttpUrls,
+  hasUrl,
+  startsWithWeakOpener,
+} from "../utils/regex.js";
+import { countCommas, countWords } from "../utils/text-metrics.js";
+
+/**
+ * @param {string} text — Segmenttext (wie in `Segment.text`)
+ * @returns {import('../domain/types.js').SurfaceFeatures}
+ */
+export function extractSurfaceFeatures(text) {
+  const t = text ?? "";
+  const len = t.length;
+  const wc = countWords(t);
+  const letters = t.replace(/[^\p{L}]/gu, "");
+  const isAllCaps =
+    letters.length >= 3 &&
+    letters === letters.toUpperCase() &&
+    /[\p{L}]/u.test(letters);
+
+  return {
+    length: len,
+    wordCount: wc,
+    commaCount: countCommas(t),
+    hasQuestion: hasQuestionMarkOutsideHttpUrls(t),
+    hasNumber: hasNumberLike(t),
+    hasUrl: hasUrl(t),
+    hasHashtag: hasHashtag(t),
+    hasEmojiRun: hasEmojiRun(t),
+    startsWeak: startsWithWeakOpener(t),
+    isAllCaps,
+  };
+}
+
+/**
+ * AP2-Aufgabe „lange Sätze“: über Schwellen aus `thresholds.js` (kein extra Feld in §5.5).
+ * @param {import('../domain/types.js').SurfaceFeatures} surface
+ */
+export function isLongSegmentSurface(surface) {
+  return (
+    surface.wordCount >= LONG_SENTENCE_WORDS ||
+    surface.length >= LONG_SENTENCE_CHARS
+  );
+}
+
+#/src/core/normalize-text.js
+/**
+ * @param {string | null | undefined} raw
+ * @param {{ localeHint?: 'de'|'en'|'ru'|'auto' }} [options]
+ * @returns {{ raw: string, normalized: string, language: import('../domain/types.js').DetectedLanguage }}
+ */
+export function normalizeText(raw, options = {}) {
+  const r = raw == null ? "" : String(raw);
+  const withLf = r.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const normalized = withLf.trim();
+  const language = resolveLanguage(normalized, options.localeHint);
+  return { raw: r, normalized, language };
+}
+
+/**
+ * @param {string} normalized
+ * @param {'de'|'en'|'ru'|'auto'|undefined} hint
+ * @returns {import('../domain/types.js').DetectedLanguage}
+ */
+function resolveLanguage(normalized, hint) {
+  if (hint === "de" || hint === "en" || hint === "ru") return hint;
+  if (!normalized) return "unknown";
+  if (/[а-яА-ЯёЁ]{2,}/.test(normalized)) return "ru";
+  if (/[äöüÄÖÜß]/.test(normalized)) return "de";
+  if (/[a-zA-Z]/.test(normalized)) return "en";
+  return "unknown";
+}
+
+/**
+ * Segmentierungssprache für Intl.Segmenter (Fallback: de).
+ * @param {import('../domain/types.js').DetectedLanguage} language
+ */
+export function segmenterLocaleForLanguage(language) {
+  if (language === "en") return "en";
+  if (language === "ru") return "ru";
+  return "de";
+}
+
+#/src/core/resolve-fold-teaser.js
+/**
+ * Nahtstelle für Fold-Snippets:
+ * - AP6 primär segment-/signalbasiert aus PostModel (`resolveFeedSnippetFromPostModel`)
+ * - Fallback optional via Raw-Ranker (`resolveFeedFoldTeaser`)
+ */
+import { resolveFeedFoldTeaser } from "../preview/feed-snippet-ranker.js";
+import { resolveFeedSnippetFromPostModel } from "../preview/feed-snippet.js";
+
+export { resolveFeedFoldTeaser, resolveFeedSnippetFromPostModel };
+
+#/src/core/segment-document.js
+import { normalizeText, segmenterLocaleForLanguage } from "./normalize-text.js";
+import { classifyRoles } from "./classify-roles.js";
+import { extractSignalScores } from "./extract-signal-scores.js";
+import { extractSurfaceFeatures } from "./extract-surface-features.js";
+import { rangesFallbackSentences } from "./sentence-fallback.js";
+import { countWords } from "../utils/text-metrics.js";
+
+/**
+ * Vollständiges NormalizedDocument (AP1, Zieldokument §5.2).
+ * @param {string | null | undefined} raw
+ * @param {{ localeHint?: 'de'|'en'|'ru'|'auto', includeSentencePairs?: boolean }} [options] — Satzpaare nur bei `includeSentencePairs: true`
+ * @returns {import('../domain/types.js').NormalizedDocument}
+ */
+export function buildNormalizedDocument(raw, options = {}) {
+  const { raw: rawStr, normalized, language } = normalizeText(raw, {
+    localeHint: options.localeHint,
+  });
+  const paragraphs = splitParagraphs(normalized);
+  const includePairs = options.includeSentencePairs === true;
+
+  /** @type {import('../domain/types.js').Paragraph[]} */
+  const outParagraphs = [];
+  let sentenceTotal = 0;
+
+  /** @type {number[]} */
+  const sentenceCountsPerParagraph = paragraphs.map((p) =>
+    sentenceRanges(p.text, language).length,
+  );
+  const totalDocSentences = sentenceCountsPerParagraph.reduce((a, b) => a + b, 0);
+  let docSentenceOffset = 0;
+
+  for (let pi = 0; pi < paragraphs.length; pi++) {
+    const { charStart, charEnd, text } = paragraphs[pi];
+    const ranges = sentenceRanges(text, language);
+    const sentenceSegments = buildSentenceSegments(
+      text,
+      ranges,
+      charStart,
+      pi,
+      language,
+      includePairs,
+      {
+        paragraphSentenceCount: sentenceCountsPerParagraph[pi],
+        docSentenceOffsetStart: docSentenceOffset,
+        docSentenceTotal: totalDocSentences,
+      }
+    );
+    docSentenceOffset += sentenceCountsPerParagraph[pi];
+    sentenceTotal += sentenceSegments.filter((s) => s.type === "sentence").length;
+    outParagraphs.push({
+      id: `p${pi}`,
+      index: pi,
+      text,
+      charStart,
+      charEnd,
+      sentences: sentenceSegments,
+    });
+  }
+
+  return {
+    raw: rawStr,
+    normalized,
+    language,
+    paragraphs: outParagraphs,
+    metrics: {
+      charCount: normalized.length,
+      wordCount: countWords(normalized),
+      paragraphCount: outParagraphs.length,
+      sentenceCount: sentenceTotal,
+    },
+  };
+}
+
+/**
+ * @param {string} normalized
+ * @returns {{ charStart: number, charEnd: number, text: string }[]}
+ */
+function splitParagraphs(normalized) {
+  if (!normalized) return [];
+  /** @type {{ charStart: number, charEnd: number, text: string }[]} */
+  const out = [];
+  let blockStart = 0;
+  const re = /\n\s*\n/g;
+  let m;
+  while ((m = re.exec(normalized)) !== null) {
+    pushParagraphBlock(out, normalized, blockStart, m.index);
+    blockStart = m.index + m[0].length;
+  }
+  pushParagraphBlock(out, normalized, blockStart, normalized.length);
+  return out;
+}
+
+/**
+ * @param {{ charStart: number, charEnd: number, text: string }[]} out
+ * @param {string} norm
+ * @param {number} blockStart
+ * @param {number} blockEnd
+ */
+function pushParagraphBlock(out, norm, blockStart, blockEnd) {
+  const slice = norm.slice(blockStart, blockEnd);
+  const lead = slice.length - slice.trimStart().length;
+  const trail = slice.length - slice.trimEnd().length;
+  const t0 = blockStart + lead;
+  const t1 = blockEnd - trail;
+  if (t0 >= t1) return;
+  out.push({ charStart: t0, charEnd: t1, text: norm.slice(t0, t1) });
+}
+
+/**
+ * @typedef {Object} RolePlacement
+ * @property {number} paragraphSentenceCount
+ * @property {number} docSentenceOffsetStart
+ * @property {number} docSentenceTotal
+ */
+
+/**
+ * @param {string} paragraphText
+ * @param {{ localStart: number, localEnd: number }[]} ranges
+ * @param {number} paragraphGlobalStart
+ * @param {number} paragraphIndex
+ * @param {import('../domain/types.js').DetectedLanguage} language
+ * @param {boolean} includePairs
+ * @param {RolePlacement} rp
+ * @returns {import('../domain/types.js').Segment[]}
+ */
+function buildSentenceSegments(
+  paragraphText,
+  ranges,
+  paragraphGlobalStart,
+  paragraphIndex,
+  language,
+  includePairs,
+  rp
+) {
+  /** @type {import('../domain/types.js').Segment[]} */
+  const sentences = [];
+  for (let si = 0; si < ranges.length; si++) {
+    const { localStart, localEnd } = ranges[si];
+    const g0 = paragraphGlobalStart + localStart;
+    const g1 = paragraphGlobalStart + localEnd;
+    const text = paragraphText.slice(localStart, localEnd);
+    const surface = extractSurfaceFeatures(text);
+    const signals = extractSignalScores(surface, text, language);
+    const roles = classifyRoles(surface, signals, {
+      segmentType: "sentence",
+      docSentenceIndex: rp.docSentenceOffsetStart + si,
+      docSentenceCount: rp.docSentenceTotal,
+      paragraphSentenceIndex: si,
+      paragraphSentenceCount: rp.paragraphSentenceCount,
+      text,
+    });
+    sentences.push({
+      id: `p${paragraphIndex}-s${si}`,
+      type: "sentence",
+      text,
+      paragraphIndex: paragraphIndex,
+      sentenceIndex: si,
+      charStart: g0,
+      charEnd: g1,
+      surface,
+      signals,
+      roles,
+    });
+  }
+
+  if (includePairs && ranges.length >= 2) {
+    for (let si = 0; si < ranges.length - 1; si++) {
+      const a = ranges[si];
+      const b = ranges[si + 1];
+      const localStart = a.localStart;
+      const localEnd = b.localEnd;
+      const g0 = paragraphGlobalStart + localStart;
+      const g1 = paragraphGlobalStart + localEnd;
+      const text = paragraphText.slice(localStart, localEnd);
+      const surface = extractSurfaceFeatures(text);
+      const signals = extractSignalScores(surface, text, language);
+      const roles = classifyRoles(surface, signals, {
+        segmentType: "sentence_pair",
+        docSentenceIndex: rp.docSentenceOffsetStart + si,
+        docSentenceCount: rp.docSentenceTotal,
+        paragraphSentenceIndex: si,
+        paragraphSentenceCount: rp.paragraphSentenceCount,
+        text,
+      });
+      sentences.push({
+        id: `p${paragraphIndex}-sp${si}-${si + 1}`,
+        type: "sentence_pair",
+        text,
+        paragraphIndex: paragraphIndex,
+        charStart: g0,
+        charEnd: g1,
+        surface,
+        signals,
+        roles,
+      });
+    }
+  }
+
+  return sentences;
+}
+
+/**
+ * @param {string} text — Absatztext
+ * @param {import('../domain/types.js').DetectedLanguage} language
+ * @returns {{ localStart: number, localEnd: number }[]}
+ */
+function sentenceRanges(text, language) {
+  if (!text.trim()) return [];
+  if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+    const loc = segmenterLocaleForLanguage(language);
+    try {
+      const seg = new Intl.Segmenter(loc, { granularity: "sentence" });
+      return rangesFromIntlSegmenter(text, seg);
+    } catch {
+      /* Intl locale unsupported */
+    }
+  }
+  return rangesFallbackSentences(text);
+}
+
+/**
+ * @param {string} text
+ * @param {Intl.Segmenter} seg
+ */
+function rangesFromIntlSegmenter(text, seg) {
+  /** @type {{ localStart: number, localEnd: number }[]} */
+  const ranges = [];
+  let cursor = 0;
+  for (const data of seg.segment(text)) {
+    const piece = data.segment;
+    let start;
+    if (typeof data.index === "number") {
+      start = data.index;
+    } else if (text.startsWith(piece, cursor)) {
+      start = cursor;
+    } else {
+      start = text.indexOf(piece, cursor);
+    }
+    if (start < 0) continue;
+    const end = start + piece.length;
+    cursor = end;
+    const lead = piece.length - piece.trimStart().length;
+    const trail = piece.length - piece.trimEnd().length;
+    const t0 = start + lead;
+    const t1 = end - trail;
+    if (t0 < t1) ranges.push({ localStart: t0, localEnd: t1 });
+  }
+  return ranges.length ? ranges : rangesFallbackSentences(text);
+}
+
+#/src/core/sentence-fallback.js
+/**
+ * Satzgrenzen ohne Intl.Segmenter (AP1, Zieldokument).
+ * @param {string} text — ein Absatz
+ * @returns {{ localStart: number, localEnd: number }[]}
+ */
+export function rangesFallbackSentences(text) {
+  /** @type {{ localStart: number, localEnd: number }[]} */
+  const ranges = [];
+  const n = text.length;
+  let sentStart = 0;
+  let i = 0;
+  while (i < n) {
+    const ch = text[i];
+    if (".!?…".includes(ch) && isLikelySentenceEnd(text, i)) {
+      const end = i + 1;
+      pushTrimmedRange(text, sentStart, end, ranges);
+      i = skipSpaces(text, end);
+      sentStart = i;
+    } else {
+      i++;
+    }
+  }
+  if (sentStart < n) pushTrimmedRange(text, sentStart, n, ranges);
+  if (!ranges.length && text.trim()) {
+    pushTrimmedRange(text, 0, n, ranges);
+  }
+  return ranges;
+}
+
+/**
+ * @param {string} text
+ * @param {number} punctIndex
+ */
+function isLikelySentenceEnd(text, punctIndex) {
+  let j = skipSpaces(text, punctIndex + 1);
+  if (j >= text.length) return true;
+  const next = text[j];
+  return (
+    /[A-ZÄÖÜА-Я]/.test(next) ||
+    /[0-9]/.test(next) ||
+    /[\u201e"\u00ab\u201c'[(]/.test(next)
+  );
+}
+
+/**
+ * @param {string} text
+ * @param {number} from
+ */
+function skipSpaces(text, from) {
+  let j = from;
+  while (j < text.length && /\s/.test(text[j])) j++;
+  return j;
+}
+
+/**
+ * @param {string} text
+ * @param {number} a
+ * @param {number} b
+ * @param {{ localStart: number, localEnd: number }[]} ranges
+ */
+function pushTrimmedRange(text, a, b, ranges) {
+  let t0 = a;
+  let t1 = b;
+  while (t0 < t1 && /\s/.test(text[t0])) t0++;
+  while (t1 > t0 && /\s/.test(text[t1 - 1])) t1--;
+  if (t0 < t1) ranges.push({ localStart: t0, localEnd: t1 });
+}
+
+#/src/domain/feed-snippet-constants.js
+export const FEED_SNIPPET_PROFILE = {
+  lenIdealMin: 60,
+  lenIdealMax: 220,
+  lenOkMin: 40,
+  lenOkMax: 280,
+  weights: {
+    lenIdeal: 5,
+    lenOk: 2,
+    lenBad: -5,
+    question: 4,
+    contrast: 6,
+    pain: 4,
+    benefit: 3,
+    personal: 2,
+    specificity: 2,
+    weakStart: -3,
+    longSentence: -3,
+    manyCommas: -2,
+    riskKeyword: -6,
+  },
+};
+
+#/src/domain/fold-constants.js
+/** ~sichtbarer Text im Feed vor „Mehr“ (Annäherung, Zieldokument §5.10). */
+export const FEED_FOLD_CHARS = 200;
+
+#/src/domain/recommendation-types.js
+/**
+ * AP7: Recommendation-nahe Typen für Rule Engine.
+ */
+
+/**
+ * @typedef {Object} RuleEvidence
+ * @property {string} [segmentId]
+ * @property {string} text
+ * @property {number} charStart
+ * @property {number} charEnd
+ */
+
+/**
+ * @typedef {'info'|'hint'|'warn'|'risk'} RuleLevel
+ */
+
+/**
+ * @typedef {Object} RuleResult
+ * @property {string} id
+ * @property {string} packId
+ * @property {string} ruleId
+ * @property {RuleLevel} level
+ * @property {number} priority
+ * @property {string} title
+ * @property {string} message
+ * @property {string} [action]
+ * @property {RuleEvidence[]} [evidence]
+ * @property {string} [topicBucket] — z. B. `cta`, `structure`, `risk`, `readability`
+ * @property {string[]} [conflictsWith] — Regel-IDs, die nicht gleichzeitig priorisiert werden sollen
+ * @property {string[]} tags
+ */
+
+/**
+ * @typedef {Object} RuleContext
+ * @property {import('./types.js').PostModel} post
+ * @property {{ selectedPacks: string[] }} meta
+ */
+
+/**
+ * @typedef {(ctx: RuleContext) => RuleResult[]} Rule
+ */
+
+export {};
+
+#/src/domain/role-and-structure-constants.js
+/**
+ * Kalibrierung AP4 (Rollen) und AP5 (`StructureModel`, `kind`-Schwellen).
+ * Anpassungen bewusst zentral — Ziel: stabile Heuristiken, weniger Drift (Review AP4+AP5).
+ */
+
+// --- AP4 Rollen (classify-roles) ---
+
+export const ROLE_PAIR_MULTIPLIER = 0.94;
+
+export const CLAIM_HINT_MAX_CHARS = 160;
+export const CLAIM_HINT_WEIGHT_NICHT = 0.34;
+export const CLAIM_HINT_WEIGHT_SCHEITERT = 0.24;
+
+/** @type {readonly [number, number]} — docSpan neutral wenn nur ein Satz */
+export const DOC_SPAN_SINGLE_SENTENCE = 0.34;
+
+export const ROLE_THESIS = {
+  contrast: 0.84,
+  claimHint: 0.62,
+  firstPain: 0.26,
+};
+
+export const ROLE_HOOK = {
+  contrast: 0.44,
+  cta: 0.34,
+  firstBoost: 0.34,
+  hasQuestion: 0.11,
+  isAllCaps: 0.09,
+  claimHint: 0.32,
+};
+
+export const ROLE_PROBLEM = { pain: 0.88, risk: 0.14 };
+export const ROLE_BENEFIT = { scale: 0.9 };
+export const ROLE_PROOF = { proof: 0.82, specificity: 0.14, personal: 0.4 };
+export const ROLE_EXAMPLE = { scale: 0.92 };
+
+export const ROLE_CTA = {
+  signal: 0.8,
+  lastParagraph: 0.13,
+  lastDoc: 0.09,
+  lowSignalThreshold: 0.08,
+  noQuestionDampen: 0.35,
+};
+
+export const ROLE_RISK = { scale: 0.94 };
+
+export const ROLE_CONTEXT = {
+  personal: 0.56,
+  midDocBonus: 0.16,
+  narrativeBonus: 0.26,
+  docSpanLow: 0.1,
+  docSpanHigh: 0.92,
+};
+
+export const ROLE_TRANSITION = {
+  startsWeak: 0.44,
+  midParagraph: 0.24,
+  contrast: 0.1,
+};
+
+export const ROLE_FILLER = {
+  wordMin: 30,
+  contrastMax: 0.18,
+  painMax: 0.22,
+  ctaMax: 0.18,
+  add: 0.24,
+  weakWordMin: 24,
+  weakAdd: 0.14,
+};
+
+/** Zeit-/Erzähl-Marker für Kontext-Rolle (DE-first). */
+export const CONTEXT_NARRATIVE_RE = /Monate|Wochen|Jahren|habe ich|wir haben/i;
+
+// --- AP5 StructureModel ---
+
+export const STRUCTURE_CTA_BLEND_MAX = 0.42;
+export const STRUCTURE_CTA_BLEND_LAST_THIRD = 0.58;
+
+export const STRUCTURE_SCAN_WORD_SHORT = 20;
+export const STRUCTURE_SCAN_WORD_LONG = 35;
+export const STRUCTURE_SCAN_BASE_SHORT = 0.72;
+export const STRUCTURE_SCAN_BASE_MID = 0.55;
+export const STRUCTURE_SCAN_BASE_LONG = 0.38;
+export const STRUCTURE_SCAN_PARA_STEP = 0.05;
+export const STRUCTURE_SCAN_PARA_CAP = 0.18;
+
+export const STRUCTURE_SUBSTANCE_SCALE = 1.05;
+
+export const STRUCTURE_RISK_BLEND_SIGNAL = 0.55;
+export const STRUCTURE_RISK_BLEND_ROLE = 0.45;
+
+export const STRUCTURE_THESIS_PEAK_SCALE = 0.98;
+export const STRUCTURE_ROLE_PEAK_SCALE = 0.95;
+
+export const STRUCTURE_HOOK_BLEND_MAX = 0.48;
+export const STRUCTURE_HOOK_BLEND_FIRST = 0.52;
+export const STRUCTURE_HOOK_MAX_DAMPEN = 0.88;
+
+/** `topicDrift` in §5.11: nur Satzzahl-Heuristik, keine semantische Topic-Analyse. */
+export const TOPIC_DRIFT_SENTENCE_MEDIUM = 8;
+export const TOPIC_DRIFT_SENTENCE_HIGH = 18;
+
+// --- AP5 PostKind (infer) ---
+
+export const KIND_ARTICLE_MIN_PARAGRAPHS = 6;
+export const KIND_ARTICLE_MIN_CHARS = 3500;
+export const KIND_ARTICLE_MIN_WORDS = 550;
+export const KIND_HEADLINE_MAX_WORDS = 14;
+export const KIND_HEADLINE_MAX_PARAGRAPHS = 1;
+export const KIND_HEADLINE_MAX_CHARS = 180;
+export const KIND_INVITE_MAX_WORDS = 95;
+
+/** Heuristik für Einladungs-Ton (unscharf; UI-`kind` bevorzugen). */
+export const KIND_INVITE_HINT_RE =
+  /\b(vernetzen|Vernetzen|Netzwerk|connect|Kennenlernen|kennenzulernen)\b/i;
+
+// --- AP5 Risiko-Sammlung (Builder, nicht Rule Engine) ---
+
+export const BUILDER_SENSITIVE_SIGNAL_THRESHOLD = 0.48;
+
+// --- AP5 kindConfidence (0–1): niedrig → AP7 format-spezifische Packs zurückhaltend ---
+
+export const KIND_CONFIDENCE_USER_OVERRIDE = 1;
+export const KIND_CONFIDENCE_EMPTY = 0;
+export const KIND_CONFIDENCE_ARTICLE = 0.82;
+export const KIND_CONFIDENCE_HEADLINE = 0.52;
+export const KIND_CONFIDENCE_INVITE = 0.62;
+/** Längerer Default-Feed: eher wirklich Feed. */
+export const KIND_CONFIDENCE_FEED_LONG_WORDS = 40;
+export const KIND_CONFIDENCE_FEED_LONG = 0.7;
+/** Kurzer Text im Feed-Eimer: oft Headline/Kurz-Feed/Einladung — keine harten Feed-Tipps. */
+export const KIND_CONFIDENCE_FEED_SHORT = 0.48;
+
+// --- Fold: Segment-Matching (Stub bis AP6) ---
+
+export const FOLD_SEGMENT_HEAD_CHARS = 48;
+export const FOLD_SEGMENT_PREFIX_CHARS = 24;
+export const FOLD_MAX_SEGMENT_IDS = 4;
+
+#/src/domain/segment-stubs.js
+/** Platzhalter für Tests/Mocks: Live-Pipeline setzt Signale (AP3) und Rollen (AP4) in `segment-document.js`. */
+
+/**
+ * @returns {import('./types.js').SignalScores}
+ */
+export function emptySignalScores() {
+  return {
+    contrast: 0,
+    pain: 0,
+    benefit: 0,
+    personal: 0,
+    specificity: 0,
+    risk: 0,
+    cta: 0,
+    proof: 0,
+    example: 0,
+    buzzword: 0,
+  };
+}
+
+/**
+ * @returns {import('./types.js').RoleScores}
+ */
+export function emptyRoleScores() {
+  return {
+    hook: 0,
+    context: 0,
+    thesis: 0,
+    problem: 0,
+    benefit: 0,
+    example: 0,
+    proof: 0,
+    transition: 0,
+    cta: 0,
+    risk: 0,
+    filler: 0,
+  };
+}
+
+/**
+ * @returns {{ signals: import('./types.js').SignalScores, roles: import('./types.js').RoleScores }}
+ */
+export function emptySignalsAndRoles() {
+  return {
+    signals: emptySignalScores(),
+    roles: emptyRoleScores(),
+  };
+}
+
+#/src/domain/thresholds.js
+/** Schwellen für Oberflächen-/Heuristiken (AP2/AP3, Zieldokument). */
+
+/** Ab dieser Wortzahl gilt ein Satz als „lang“ (z. B. Snippet-Ranker-PoC). */
+export const LONG_SENTENCE_WORDS = 40;
+
+/** Ab dieser Zeichenzahl gilt ein Satz als „lang“ (Fallback). */
+export const LONG_SENTENCE_CHARS = 280;
+
+/** Ab dieser Zeichenzahl gilt ein Absatz als „dicht“ (Wall of Text). */
+export const LONG_PARAGRAPH_CHARS = 320;
+
+/** Ab dieser Satzanzahl gilt ein Absatz als „dicht“ (Wall of Text). */
+export const LONG_PARAGRAPH_SENTENCES = 4;
+
+/** Wall-of-Text-Hinweis erst bei ausreichend langen Gesamttexten. */
+export const WALL_OF_TEXT_MIN_POST_CHARS = 500;
+
+/** Buzzword-Dichte erst ab ausreichender Textlänge bewerten. */
+export const BUZZWORD_DENSE_MIN_WORDS = 80;
+
+/** Minimale Anzahl auffälliger Sätze für Buzzword-Dichte-Hinweis. */
+export const BUZZWORD_DENSE_MIN_SEGMENTS = 3;
+
+/** Minimaler Anteil auffälliger Sätze für Buzzword-Dichte-Hinweis. */
+export const BUZZWORD_DENSE_SEGMENT_RATIO = 0.22;
+
+#/src/domain/types.js
+/**
+ * @typedef {'de'|'en'|'ru'|'unknown'} DetectedLanguage
+ */
+
+/**
+ * @typedef {'sentence'|'line'|'sentence_pair'|'list_item'} SegmentType
+ */
+
+/**
+ * @typedef {Object} SurfaceFeatures
+ * @property {number} length
+ * @property {number} wordCount
+ * @property {number} commaCount
+ * @property {boolean} hasQuestion — `?` außerhalb von http(s)-URL-Spannen (nicht Querystring allein)
+ * @property {boolean} hasNumber
+ * @property {boolean} hasUrl
+ * @property {boolean} hasHashtag
+ * @property {boolean} hasEmojiRun
+ * @property {boolean} startsWeak
+ * @property {boolean} isAllCaps
+ */
+
+/**
+ * @typedef {Object} SignalScores
+ * @property {number} contrast
+ * @property {number} pain
+ * @property {number} benefit
+ * @property {number} personal
+ * @property {number} specificity
+ * @property {number} risk
+ * @property {number} cta
+ * @property {number} proof
+ * @property {number} example
+ * @property {number} buzzword
+ */
+
+/**
+ * @typedef {Object} RoleScores
+ * @property {number} hook
+ * @property {number} context
+ * @property {number} thesis
+ * @property {number} problem
+ * @property {number} benefit
+ * @property {number} example
+ * @property {number} proof
+ * @property {number} transition
+ * @property {number} cta
+ * @property {number} risk
+ * @property {number} filler
+ */
+
+/**
+ * @typedef {Object} Segment
+ * @property {string} id
+ * @property {SegmentType} type
+ * @property {string} text
+ * @property {number} paragraphIndex
+ * @property {number} [sentenceIndex]
+ * @property {number} charStart
+ * @property {number} charEnd
+ * @property {SurfaceFeatures} surface
+ * @property {SignalScores} signals
+ * @property {RoleScores} roles
+ */
+
+/**
+ * @typedef {Object} Paragraph
+ * @property {string} id
+ * @property {number} index
+ * @property {string} text
+ * @property {number} charStart
+ * @property {number} charEnd
+ * @property {Segment[]} sentences
+ */
+
+/**
+ * @typedef {Object} DocumentMetrics
+ * @property {number} charCount
+ * @property {number} wordCount
+ * @property {number} paragraphCount
+ * @property {number} sentenceCount
+ */
+
+/**
+ * @typedef {Object} NormalizedDocument
+ * @property {string} raw
+ * @property {string} normalized
+ * @property {DetectedLanguage} language
+ * @property {Paragraph[]} paragraphs
+ * @property {DocumentMetrics} metrics
+ */
+
+/**
+ * @typedef {'headline'|'invite'|'feed'|'article'|'unknown'} PostKind
+ */
+
+/**
+ * @typedef {'first_line'|'ranked_segment'|'fallback'} SnippetSource
+ */
+
+/**
+ * @typedef {Object} FoldModel
+ * @property {number} approximateVisibleChars
+ * @property {string} firstLine
+ * @property {number} firstLineLength
+ * @property {number} firstParagraphLength
+ * @property {string[]} bestSnippetSegmentIds
+ * @property {string} bestSnippetText
+ * @property {SnippetSource} snippetSource
+ */
+
+/**
+ * @typedef {Object} StructureModel
+ * @property {number} hookStrength
+ * @property {number} thesisStrength
+ * @property {number|null} thesisPosition — 0–1 relativ zu `normalized.length`, sonst `null`
+ * @property {string|null} strongestThesisSegmentId
+ * @property {number} problemStrength
+ * @property {number} benefitStrength
+ * @property {number} ctaStrength
+ * @property {number} scanability
+ * @property {number} substance
+ * @property {number} risk
+ * @property {'low'|'medium'|'high'|'unknown'} topicDrift — **Heuristik:** Stärke steigt mit **Satzanzahl** (Komplexität/Länge), nicht mit semantischer Themen-Zerstreuung (§5.11).
+ */
+
+/**
+ * @typedef {Object} RiskFinding
+ * @property {string} id
+ * @property {string} code
+ * @property {'info'|'hint'|'warn'|'risk'} level
+ * @property {string} message
+ * @property {string} [segmentId]
+ */
+
+/**
+ * @typedef {Object} PostModel
+ * @property {string} id
+ * @property {PostKind} kind
+ * @property {number} kindConfidence — 0–1; niedrig bei heuristisch mehrdeutigen Kurztexten (§5.9). Nutzer-`kind` → 1.
+ * @property {string} language — ISO-artig aus Normalisierung (`de`|`en`|`ru`|`unknown`)
+ * @property {string} raw
+ * @property {string} normalized
+ * @property {DocumentMetrics} metrics
+ * @property {Paragraph[]} paragraphs
+ * @property {Segment[]} segments — flache Liste (Reihenfolge wie im Dokument)
+ * @property {FoldModel} fold
+ * @property {StructureModel} structure
+ * @property {RiskFinding[]} risks
+ * @property {string} version — Schema-/Builder-Version
+ * @property {Object} [debug] — nur wenn `includeDebug` in {@link AnalyzePostOptions}
+ * @property {string} [debug.topicDriftNote]
+ */
+
+/**
+ * @typedef {Object} AnalyzePostOptions
+ * @property {'de'|'en'|'ru'|'auto'} [localeHint]
+ * @property {boolean} [includeSentencePairs]
+ * @property {PostKind} [kind] — Nutzer-Kontext (Variante A, §5.9); sonst Heuristik
+ * @property {string} [id]
+ * @property {boolean} [includeDebug]
+ */
+
+/**
+ * @typedef {Object} SegmentSemantics
+ * @property {SurfaceFeatures} surface
+ * @property {SignalScores} signals
+ * @property {RoleScores} roles
+ */
+
+export {};
+
+#/src/preview/feed-snippet-ranker.js
+/**
+ * Feed-Snippet-Ranker (80/20): Kandidaten erzeugen → ausschließen → nach Hook-Signalen ranken → falten.
+ * Keine NLP-Libs; optional Intl.Segmenter (Baseline), sonst grober Satz-Split.
+ *
+ * Kanonische Implementierung unter `src/preview/` (vor AP6: noch Rohtext-first; später Anreicherung aus PostModel).
+ */
+
+import { FEED_FOLD_CHARS } from "../domain/fold-constants.js";
+import { FEED_SNIPPET_PROFILE } from "../domain/feed-snippet-constants.js";
+
+/** @typedef {{ id: string, text: string, score: number, flags: string[] }} RankedSnippet */
+
+const SIGNALS = {
+  contrast: [/\bnicht\b[\s\S]{0,80}\bsondern\b/i, /\beigentlich\b[\s\S]{0,60}\baber\b/i, /\bdoch\b/i, /\btrotzdem\b/i],
+  pain: [/\bProblem(e|)?\b/i, /\bscheitert(e|)?\b/i, /\bAufwand\b/i, /\btut weh\b/i, /\bRisiko\b/i, /\bvergisst\b/i, /\bHerausforderung\b/i],
+  benefit: [/\bÜberblick\b/i, /\bweniger Aufwand\b/i, /\beinfacher\b/i, /\bHebel\b/i, /\bspart\b/i, /\bNutzen\b/i, /\bklar(er|e)?\b/i],
+  personal: [/\bich\b/i, /\bmein(e|er|em|en)?\b/i, /\bmir\b/i, /\bbei mir\b/i, /\buns\b/i],
+  specificity: [/\d/, /€/, /%/],
+  riskKeyword: [/\bSchwarzarbeit\b/i, /\bSteuerhinterziehung\b/i, /\billegal(e|er|es)?\b/i, /\bBetrug\b/i],
+};
+
+const WEAK_OPENERS = /^(Dabei|Außerdem|Daher|Deshalb|Somit|Diese|Dieses|Dieser|Zudem|Ferner|Zunächst|Und zwar)\b/i;
+
+function firstParagraphNorm(raw) {
+  const t = raw.replace(/\r\n/g, "\n").trim();
+  if (!t) return "";
+  const m = t.match(/^([\s\S]*?)(?:\n\s*\n|$)/);
+  return (m ? m[1] : t).trim();
+}
+
+/** @param {string} text @param {string} [locale='de'] */
+export function splitSentencesLocale(text, locale = "de") {
+  const t = text.replace(/\r\n/g, "\n").trim();
+  if (!t) return [];
+  try {
+    if (typeof Intl !== "undefined" && typeof Intl.Segmenter === "function") {
+      const seg = new Intl.Segmenter(locale, { granularity: "sentence" });
+      return [...seg.segment(t)]
+        .map((s) => s.segment.trim())
+        .filter((s) => s.length > 2);
+    }
+  } catch {
+    /* ignore */
+  }
+  return t
+    .split(/(?<=[.!?…])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 2);
+}
+
+function normKey(s) {
+  return s.replace(/\s+/g, " ").trim().toLowerCase().slice(0, 160);
+}
+
+/**
+ * Für DE-Feedtexte liefert Segmenter oft **einen** langen Block. Dann: grobe Satz-/Klausel-Splits mergen.
+ * Für Paare/Kandidaten-Reihenfolge: bevorzugt Segmenter, sonst Interpunktion.
+ */
+export function splitSentencesHybrid(para, locale = "de") {
+  const seen = new Set();
+  const out = [];
+  const add = (s) => {
+    const t = s.replace(/\s+/g, " ").trim();
+    if (t.length < 16) return;
+    const k = normKey(t);
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(t);
+  };
+
+  const loc = splitSentencesLocale(para, locale);
+  for (const s of loc) add(s);
+
+  for (const part of para.split(/[.!?…]+/)) add(part);
+  for (const part of para.split(/\n+/)) add(part);
+  for (const part of para.split(/\s*[;]\s+/)) add(part);
+
+  /** Ein Riesen-Segment: zusätzlich an Gedankenstrich / Doppelpunkt teilen */
+  if (loc.length === 1 && loc[0].length > 160) {
+    for (const part of loc[0].split(/\s+[—–]\s+/)) add(part);
+    for (const part of loc[0].split(/\s*:\s+/)) add(part);
+  }
+
+  return out;
+}
+
+/** Geordnete Satzliste für Paare & Eröffnungs-Erkennung (nicht nur ein ICU-Block). */
+function splitOrderedForPairs(para, locale = "de") {
+  const loc = splitSentencesLocale(para, locale);
+  if (loc.length >= 2) return loc;
+
+  /** Ein „Satz“ für ICU, aber mehrere Zeilen / Sinneinheiten — vor Interpunktion splitten */
+  if (loc.length === 1 && loc[0].length > 90) {
+    const byNl = loc[0]
+      .split(/\n+/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 22);
+    if (byNl.length >= 2) return byNl;
+  }
+
+  const rough = para
+    .replace(/\r\n/g, "\n")
+    .trim()
+    .split(/[.!?…]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 12);
+  if (rough.length >= 2) return rough;
+
+  if (loc.length === 1 && loc[0].length > 120) {
+    const byDash = loc[0].split(/\s+[—–]\s+/).map((s) => s.trim()).filter((s) => s.length > 20);
+    if (byDash.length >= 2) return byDash;
+  }
+  return loc.length ? loc : rough;
+}
+
+function wordCount(s) {
+  return s.trim().split(/\s+/).filter(Boolean).length;
+}
+
+function foldTeaser(text, maxLen) {
+  if (!text) return "";
+  if (text.length <= maxLen) return text;
+  let cut = text.slice(0, maxLen - 1);
+  const sp = cut.lastIndexOf(" ");
+  if (sp > maxLen * 0.55) cut = cut.slice(0, sp);
+  return `${cut.trimEnd()}…`;
+}
+
+function excludeCandidate(text) {
+  const t = text.trim();
+  if (t.length < 22) return true;
+  if (/^https?:\/\/\S+$/i.test(t)) return true;
+  if (/^(#\w+\s*)+$/u.test(t)) return true;
+  return false;
+}
+
+/**
+ * @param {string} text
+ * @param {typeof FEED_SNIPPET_PROFILE} [profile]
+ */
+export function scoreSnippetCandidate(text, profile = FEED_SNIPPET_PROFILE) {
+  const w = profile.weights;
+  let score = 0;
+  const flags = [];
+  const t = text.trim();
+  const len = t.length;
+  const wc = wordCount(t);
+
+  if (len >= profile.lenIdealMin && len <= profile.lenIdealMax) score += w.lenIdeal;
+  else if (len >= profile.lenOkMin && len <= profile.lenOkMax) score += w.lenOk;
+  else score += w.lenBad;
+
+  if (/\?\s*$/.test(t)) {
+    score += w.question;
+    flags.push("question");
+  }
+  if (SIGNALS.contrast.some((r) => r.test(t))) {
+    score += w.contrast;
+    flags.push("contrast");
+  }
+  if (SIGNALS.pain.some((r) => r.test(t))) {
+    score += w.pain;
+    flags.push("pain");
+  }
+  if (SIGNALS.benefit.some((r) => r.test(t))) {
+    score += w.benefit;
+    flags.push("benefit");
+  }
+  if (SIGNALS.personal.some((r) => r.test(t))) {
+    score += w.personal;
+    flags.push("personal");
+  }
+  if (SIGNALS.specificity.some((r) => r.test(t))) {
+    score += w.specificity;
+    flags.push("specificity");
+  }
+  if (WEAK_OPENERS.test(t)) score += w.weakStart;
+  if (wc > 40) score += w.longSentence;
+  if ((t.match(/,/g) || []).length >= 4) score += w.manyCommas;
+  if (SIGNALS.riskKeyword.some((r) => r.test(t))) {
+    score += w.riskKeyword;
+    flags.push("sensitive-term");
+  }
+
+  return { score, flags };
+}
+
+/**
+ * Kandidaten nur aus dem ersten Absatz (wie bisheriger Feed-Fold-Kontext).
+ * @returns {{ id: string, text: string }[]}
+ */
+export function buildSnippetCandidates(para) {
+  const out = [];
+  const ordered = splitOrderedForPairs(para, "de");
+  const hybrid = splitSentencesHybrid(para, "de");
+  const seen = new Set();
+
+  const push = (id, text) => {
+    const t = text.replace(/\s+/g, " ").trim();
+    if (!t || seen.has(t)) return;
+    seen.add(t);
+    out.push({ id, text: t });
+  };
+
+  for (let i = 0; i < ordered.length; i++) {
+    push(`s${i}`, ordered[i]);
+    if (i + 1 < ordered.length) {
+      const pair = `${ordered[i]} ${ordered[i + 1]}`.trim();
+      if (pair.length <= 320) push(`p${i}`, pair);
+    }
+  }
+
+  for (const h of hybrid) {
+    const dup = ordered.some((o) => normKey(o) === normKey(h));
+    if (!dup && h.length >= 40 && h.length <= 260) push(`h-${normKey(h).slice(0, 12)}`, h);
+  }
+
+  const p = para.trim();
+  if (p.length >= 40 && p.length <= 280 && ordered.length > 1) push("para", p);
+
+  const fl = p.split("\n")[0]?.trim() || "";
+  const rest = p.slice(fl.length).trim();
+  if (fl.length >= 12 && fl.length <= 120 && rest.length >= 20) {
+    const sub = rest.split(/(?<=[.!?])\s+/)[0]?.trim();
+    if (sub) push("head+follow", `${fl} ${sub}`);
+  }
+
+  return out;
+}
+
+function openingSentenceNorm(para) {
+  const ord = splitOrderedForPairs(para, "de");
+  if (!ord.length) return "";
+  return normKey(ord[0]);
+}
+
+function applyOpeningDemotion(para, cand, baseScore, flags) {
+  const ord = splitOrderedForPairs(para, "de");
+  if (ord.length < 2) return baseScore;
+  const open = openingSentenceNorm(para);
+  if (!open || normKey(cand.text) !== open) return baseScore;
+  const strong = flags.includes("question") || flags.includes("contrast") || flags.includes("pain");
+  if (strong) return baseScore;
+  return baseScore - 5;
+}
+
+export function rankFeedSnippetCandidates(raw, k = 8) {
+  const para = firstParagraphNorm(raw);
+  if (!para) return [];
+  const cands = buildSnippetCandidates(para);
+  const ranked = [];
+  for (const c of cands) {
+    if (excludeCandidate(c.text)) continue;
+    const { score: rawScore, flags } = scoreSnippetCandidate(c.text);
+    const score = applyOpeningDemotion(para, c, rawScore, flags);
+    ranked.push({ id: c.id, text: c.text, score, flags });
+  }
+  ranked.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    const ia = /^s(\d+)$/.exec(a.id)?.[1];
+    const ib = /^s(\d+)$/.exec(b.id)?.[1];
+    if (ia !== undefined && ib !== undefined) return Number(ib) - Number(ia);
+    return 0;
+  });
+  return ranked.slice(0, k);
+}
+
+function fallbackTeaserFromParagraph(para, foldChars) {
+  if (!para) return "";
+  if (para.length <= foldChars) return para;
+  let cut = para.slice(0, foldChars - 1);
+  const sp = cut.lastIndexOf(" ");
+  if (sp > foldChars * 0.55) cut = cut.slice(0, sp);
+  return `${cut.trimEnd()}…`;
+}
+
+/**
+ * @returns {{ teaser: string, source: 'ranked'|'fallback'|'ranked-weak', score?: number, flags?: string[] }}
+ */
+export function resolveFeedFoldTeaser(raw, foldChars = FEED_FOLD_CHARS) {
+  const para = firstParagraphNorm(raw);
+  if (!para) return { teaser: "", source: "fallback" };
+
+  const ranked = rankFeedSnippetCandidates(raw, 12);
+  const minScore = -12;
+  let best = ranked.find((r) => r.score >= minScore) ?? ranked[0];
+
+  if (best && /^p(\d+)$/.test(best.id)) {
+    const i = Number(/^p(\d+)$/.exec(best.id)[1]);
+    const second = ranked.find((r) => r.id === `s${i + 1}`);
+    if (second && second.score >= best.score - 2) best = second;
+  }
+
+  if (best) {
+    return {
+      teaser: foldTeaser(best.text, foldChars),
+      source: ranked.some((r) => r.score >= minScore) ? "ranked" : "ranked-weak",
+      score: best.score,
+      flags: best.flags,
+    };
+  }
+
+  return {
+    teaser: fallbackTeaserFromParagraph(para, foldChars),
+    source: "fallback",
+  };
+}
+
+#/src/preview/feed-snippet.js
+import { FEED_FOLD_CHARS } from "../domain/fold-constants.js";
+
+/**
+ * @param {string} text
+ * @param {number} maxLen
+ */
+function foldTeaser(text, maxLen) {
+  if (!text) return "";
+  if (text.length <= maxLen) return text;
+  let cut = text.slice(0, maxLen - 1);
+  const sp = cut.lastIndexOf(" ");
+  if (sp > maxLen * 0.55) cut = cut.slice(0, sp);
+  return `${cut.trimEnd()}…`;
+}
+
+/**
+ * @param {import('../domain/types.js').Segment} s
+ * @param {number} sentenceIndex
+ */
+function scoreSentenceCandidate(s, sentenceIndex) {
+  const { roles, signals, surface } = s;
+  let score =
+    roles.hook * 18 +
+    roles.thesis * 14 +
+    roles.benefit * 10 +
+    roles.problem * 6 +
+    roles.cta * 4 +
+    roles.proof * 4 +
+    signals.specificity * 2 -
+    roles.risk * 8 -
+    roles.filler * 6;
+
+  if (sentenceIndex === 0 && roles.hook < 0.35 && roles.thesis < 0.35) score -= 2.4;
+  if (sentenceIndex === 1) score += 1.2;
+  if (surface.wordCount > 42) score -= 1.5;
+  if (surface.wordCount < 6) score -= 1.6;
+  if (surface.startsWeak) score -= 1.2;
+  return score;
+}
+
+/**
+ * @param {import('../domain/types.js').Segment} pair
+ */
+function scorePairCandidate(pair) {
+  const { roles, signals, surface } = pair;
+  let score =
+    roles.hook * 16 +
+    roles.thesis * 12 +
+    roles.benefit * 9 +
+    roles.problem * 5 +
+    signals.contrast * 3.5 +
+    roles.proof * 3 -
+    roles.risk * 8 -
+    roles.filler * 6;
+  if (surface.wordCount > 55) score -= 2.5;
+  if (surface.wordCount < 8) score -= 1.2;
+  return score;
+}
+
+/**
+ * Fairness: einzelner „starker Hook“ ohne Substanz soll nicht blind gewinnen.
+ * @param {{ text: string, score: number }} c
+ */
+function applyFairnessGuard(c) {
+  const t = c.text.trim();
+  if (!t) return c.score;
+  const words = t.split(/\s+/).filter(Boolean).length;
+  const hasQuestion = /\?\s*$/.test(t);
+  const hasContrast = /\bnicht\b[\s\S]{0,120}\bsondern\b/i.test(t);
+  const hasBenefit = /\b(Überblick|weniger Aufwand|einfacher|Nutzen|hilft|spart)\b/i.test(t);
+  const hasProof = /\b(Studie|Daten|Quelle|Statistik|Beweis|nachgewiesen|Forschung)\b/i.test(t);
+  const hasPersonal = /\b(ich|wir|bei mir|habe ich|wir haben)\b/i.test(t);
+  let s = c.score;
+  if (hasQuestion && words <= 14 && !hasBenefit && !hasProof && !hasPersonal && !hasContrast) {
+    s -= 2.2;
+  }
+  if (words < 5) s -= 1.2;
+  return s;
+}
+
+/**
+ * @param {{ text: string, score: number, segmentIds: string[] }[]} candidates
+ */
+function dedupeCandidates(candidates) {
+  /** @type {Map<string, { text: string, score: number, segmentIds: string[] }>} */
+  const map = new Map();
+  for (const c of candidates) {
+    const textKey = c.text.replace(/\s+/g, " ").trim().toLowerCase();
+    const idKey = [...c.segmentIds].sort().join("|");
+    const key = `${textKey}::${idKey}`;
+    const prev = map.get(key);
+    if (!prev || c.score > prev.score) map.set(key, c);
+  }
+  return [...map.values()];
+}
+
+/**
+ * @param {import('../domain/types.js').Segment[]} sentenceSegs
+ * @param {import('../domain/types.js').Segment} pair
+ */
+function sentenceIdsOverlappingPair(sentenceSegs, pair) {
+  return sentenceSegs
+    .filter(
+      (s) =>
+        s.paragraphIndex === pair.paragraphIndex &&
+        s.charStart >= pair.charStart &&
+        s.charEnd <= pair.charEnd,
+    )
+    .map((s) => s.id);
+}
+
+/**
+ * AP6: Segment-/Signal-basierte Snippet-Auswahl aus dem PostModel statt Raw-only-Ranker.
+ *
+ * @param {{ paragraphs: import('../domain/types.js').Paragraph[], segments: import('../domain/types.js').Segment[] }} postLike
+ * @param {number} [foldChars]
+ * @returns {{ teaser: string, source: 'ranked_segment'|'fallback'|'first_line', score?: number, segmentIds: string[] }}
+ */
+export function resolveFeedSnippetFromPostModel(postLike, foldChars = FEED_FOLD_CHARS) {
+  const firstParagraph = postLike.paragraphs[0]?.text ?? "";
+  const firstLine = firstParagraph.split("\n")[0]?.trim() ?? "";
+  const sentenceSegs = postLike.segments.filter(
+    (s) => s.type === "sentence" && s.paragraphIndex === 0,
+  );
+
+  /** @type {{ text: string, score: number, segmentIds: string[] }[]} */
+  const candidates = [];
+  for (let i = 0; i < sentenceSegs.length; i++) {
+    const s = sentenceSegs[i];
+    candidates.push({
+      text: s.text,
+      score: scoreSentenceCandidate(s, i),
+      segmentIds: [s.id],
+    });
+  }
+
+  for (const p of postLike.segments.filter(
+    (s) => s.type === "sentence_pair" && s.paragraphIndex === 0,
+  )) {
+    candidates.push({
+      text: p.text,
+      score: scorePairCandidate(p),
+      segmentIds: sentenceIdsOverlappingPair(sentenceSegs, p),
+    });
+  }
+
+  // Falls keine gespeicherten sentence_pair-Segmente existieren: aus Nachbarsätzen bilden.
+  for (let i = 0; i < sentenceSegs.length - 1; i++) {
+    const a = sentenceSegs[i];
+    const b = sentenceSegs[i + 1];
+    const pairText = `${a.text} ${b.text}`.trim();
+    if (!pairText) continue;
+    const pseudoPair = {
+      roles: {
+        hook: Math.max(a.roles.hook, b.roles.hook),
+        context: Math.max(a.roles.context, b.roles.context),
+        thesis: Math.max(a.roles.thesis, b.roles.thesis),
+        problem: Math.max(a.roles.problem, b.roles.problem),
+        benefit: Math.max(a.roles.benefit, b.roles.benefit),
+        example: Math.max(a.roles.example, b.roles.example),
+        proof: Math.max(a.roles.proof, b.roles.proof),
+        transition: Math.max(a.roles.transition, b.roles.transition),
+        cta: Math.max(a.roles.cta, b.roles.cta),
+        risk: Math.max(a.roles.risk, b.roles.risk),
+        filler: Math.max(a.roles.filler, b.roles.filler),
+      },
+      signals: {
+        contrast: Math.max(a.signals.contrast, b.signals.contrast),
+      },
+      surface: {
+        wordCount: a.surface.wordCount + b.surface.wordCount,
+      },
+    };
+    candidates.push({
+      text: pairText,
+      score: scorePairCandidate(/** @type {any} */ (pseudoPair)) - 0.6,
+      segmentIds: [a.id, b.id],
+    });
+  }
+
+  const guarded = dedupeCandidates(
+    candidates.map((c) => ({ ...c, score: applyFairnessGuard(c) })),
+  );
+  guarded.sort((a, b) => b.score - a.score);
+  const best = guarded[0];
+  if (best && best.text.trim()) {
+    return {
+      teaser: foldTeaser(best.text, foldChars),
+      source: "ranked_segment",
+      score: best.score,
+      segmentIds: best.segmentIds,
+    };
+  }
+
+  if (firstLine) {
+    return {
+      teaser: foldTeaser(firstLine, foldChars),
+      source: "first_line",
+      segmentIds: [],
+    };
+  }
+
+  return { teaser: "", source: "fallback", segmentIds: [] };
+}
+
+#/src/recommendations/compose-recommendations.js
+import { analyzePost } from "../core/analyze-post.js";
+import { mergeRecommendations } from "./merge-recommendations.js";
+import { prioritizeRecommendations } from "./prioritize-recommendations.js";
+import { runRulePacks, DEFAULT_RULE_PACKS } from "../rules/run-rule-packs.js";
+
+/**
+ * @param {import('../domain/types.js').PostModel} post
+ * @param {import('../domain/recommendation-types.js').RuleResult[]} ruleResults
+ */
+export function composeRecommendations(post, ruleResults) {
+  const merged = mergeRecommendations(ruleResults);
+  const noInput = !post.normalized.trim();
+  const top = noInput ? [] : prioritizeRecommendations(merged, { maxItems: 3 });
+  const emptyState = noInput || top.length === 0;
+  return {
+    top,
+    details: merged,
+    emptyState,
+    meta: {
+      totalRules: ruleResults.length,
+      totalMerged: merged.length,
+      selectedTop: top.length,
+      kind: post.kind,
+      kindConfidence: post.kindConfidence,
+    },
+  };
+}
+
+/**
+ * Komfortfunktion AP8: text -> PostModel -> RuleResults -> Composer.
+ * @param {string | null | undefined} raw
+ * @param {{ selectedPacks?: string[], analyzeOptions?: import('../domain/types.js').AnalyzePostOptions }} [options]
+ */
+export function composeRecommendationsFromRaw(raw, options = {}) {
+  const post = analyzePost(raw, options.analyzeOptions);
+  const ruleResults = runRulePacks(post, options.selectedPacks ?? DEFAULT_RULE_PACKS);
+  return {
+    post,
+    ...composeRecommendations(post, ruleResults),
+  };
+}
+
+#/src/recommendations/copy.de.js
+/**
+ * AP8: zentrale Fallback-Copy (DE). V1 minimal; Regeln liefern weiterhin ihre
+ * eigenen Texte, können aber hier standardisiert überschrieben werden.
+ */
+
+/** @type {Record<string, Partial<import('../domain/recommendation-types.js').RuleResult>>} */
+export const COPY_DE_OVERRIDES = {
+  "baseline.empty_text": {
+    title: "Text fehlt",
+    message: "Ohne Text können keine sinnvollen Hebel ermittelt werden.",
+    action: "Füge 2-3 Sätze ein und starte die Analyse erneut.",
+  },
+};
+
+#/src/recommendations/merge-recommendations.js
+import { COPY_DE_OVERRIDES } from "./copy.de.js";
+
+/**
+ * @param {import('../domain/recommendation-types.js').RuleResult[]} input
+ * @returns {import('../domain/recommendation-types.js').RuleResult[]}
+ */
+export function mergeRecommendations(input) {
+  /** @type {Map<string, import('../domain/recommendation-types.js').RuleResult>} */
+  const byRule = new Map();
+
+  for (const r of input) {
+    const key = `${r.packId}:${r.ruleId}`;
+    const prev = byRule.get(key);
+    if (!prev) {
+      byRule.set(key, { ...r });
+      continue;
+    }
+
+    const keep = prev.priority >= r.priority ? prev : r;
+    const other = keep === prev ? r : prev;
+    const mergedEvidence = [...(keep.evidence ?? []), ...(other.evidence ?? [])];
+    const uniqueEvidence = mergedEvidence.filter(
+      (e, i, arr) =>
+        arr.findIndex(
+          (x) =>
+            x.segmentId === e.segmentId &&
+            x.charStart === e.charStart &&
+            x.charEnd === e.charEnd,
+        ) === i,
+    );
+    byRule.set(key, {
+      ...keep,
+      tags: Array.from(new Set([...(keep.tags ?? []), ...(other.tags ?? [])])),
+      evidence: uniqueEvidence.length ? uniqueEvidence : undefined,
+    });
+  }
+
+  return Array.from(byRule.values()).map((r) => {
+    const override = COPY_DE_OVERRIDES[r.id];
+    return override ? { ...r, ...override } : r;
+  });
+}
+
+#/src/recommendations/prioritize-recommendations.js
+const LEVEL_BOOST = {
+  info: 0,
+  hint: 2,
+  warn: 6,
+  risk: 12,
+};
+
+/**
+ * @param {import('../domain/recommendation-types.js').RuleResult[]} recommendations
+ * @param {{ maxItems?: number }} [options]
+ */
+export function prioritizeRecommendations(recommendations, options = {}) {
+  const maxItems = options.maxItems ?? 3;
+  const sorted = [...recommendations].sort((a, b) => {
+    const pa = a.priority + (LEVEL_BOOST[a.level] ?? 0);
+    const pb = b.priority + (LEVEL_BOOST[b.level] ?? 0);
+    if (pb !== pa) return pb - pa;
+    return a.id.localeCompare(b.id);
+  });
+
+  /** @type {import('../domain/recommendation-types.js').RuleResult[]} */
+  const picked = [];
+  const usedBuckets = new Set();
+  const pickedIds = new Set();
+
+  for (const r of sorted) {
+    if (picked.length >= maxItems) break;
+    if (r.topicBucket && usedBuckets.has(r.topicBucket)) continue;
+    if (r.conflictsWith?.some((id) => pickedIds.has(id))) continue;
+    if (picked.some((x) => x.conflictsWith?.includes(r.id))) continue;
+    picked.push(r);
+    pickedIds.add(r.id);
+    if (r.topicBucket) usedBuckets.add(r.topicBucket);
+  }
+
+  // Kontrollierte Auffüllrunde: gleiche Schutzlogik erneut anwenden.
+  // Lieber <maxItems als widersprüchliche oder doppelte Top-Hebel.
+  if (picked.length < maxItems) {
+    for (const r of sorted) {
+      if (picked.length >= maxItems) break;
+      if (pickedIds.has(r.id)) continue;
+      if (r.topicBucket && usedBuckets.has(r.topicBucket)) continue;
+      if (r.conflictsWith?.some((id) => pickedIds.has(id))) continue;
+      if (picked.some((x) => x.conflictsWith?.includes(r.id))) continue;
+      picked.push(r);
+      pickedIds.add(r.id);
+      if (r.topicBucket) usedBuckets.add(r.topicBucket);
+    }
+  }
+
+  return picked;
+}
+
+#/src/rules/_helpers.js
+/**
+ * @param {import('../domain/types.js').PostModel} post
+ * @param {string | undefined} segmentId
+ * @returns {import('../domain/recommendation-types.js').RuleEvidence[] | undefined}
+ */
+export function evidenceFromSegment(post, segmentId) {
+  if (!segmentId) return undefined;
+  const seg = post.segments.find((s) => s.id === segmentId);
+  if (!seg) return undefined;
+  return [
+    {
+      segmentId: seg.id,
+      text: seg.text,
+      charStart: seg.charStart,
+      charEnd: seg.charEnd,
+    },
+  ];
+}
+
+/**
+ * @param {Partial<import('../domain/recommendation-types.js').RuleResult>} x
+ * @returns {import('../domain/recommendation-types.js').RuleResult}
+ */
+export function rec(x) {
+  return {
+    id: x.id ?? "rule.unknown",
+    packId: x.packId ?? "baseline",
+    ruleId: x.ruleId ?? "unknown",
+    level: x.level ?? "hint",
+    priority: x.priority ?? 0,
+    title: x.title ?? "Hinweis",
+    message: x.message ?? "",
+    action: x.action,
+    evidence: x.evidence,
+    topicBucket: x.topicBucket,
+    conflictsWith: x.conflictsWith,
+    tags: x.tags ?? [],
+  };
+}
+
+#/src/rules/article.rules.js
+import { rec } from "./_helpers.js";
+
+export const ARTICLE_PACK_ID = "article";
+
+/**
+ * AP7-Skeleton für Artikel.
+ * @param {import('../domain/recommendation-types.js').RuleContext} ctx
+ * @returns {import('../domain/recommendation-types.js').RuleResult[]}
+ */
+export function runArticleRules(ctx) {
+  const { post } = ctx;
+  if (post.kind !== "article" || post.kindConfidence < 0.7) return [];
+  /** @type {import('../domain/recommendation-types.js').RuleResult[]} */
+  const out = [];
+
+  if (post.structure.thesisPosition !== null && post.structure.thesisPosition > 0.35) {
+    out.push(
+      rec({
+        id: "article.thesis_late",
+        packId: ARTICLE_PACK_ID,
+        ruleId: "thesis_late",
+        level: "hint",
+        priority: 40,
+        title: "Leitthese spät platziert",
+        message: "Der Artikel startet ohne klare Leitthese, dadurch fehlt früh Orientierung.",
+        action: "Formuliere die Leitthese im ersten Absatz in einem präzisen Satz.",
+        topicBucket: "structure",
+        tags: ["article", "structure"],
+      }),
+    );
+  }
+
+  const hasStrongEarlyThesis =
+    post.structure.thesisStrength >= 0.7 &&
+    post.structure.thesisPosition !== null &&
+    post.structure.thesisPosition <= 0.33;
+  const highlyScannable = post.structure.scanability >= 0.88;
+
+  // Langer, komplexer Artikel mit schwacher Führung: roten Faden stärken.
+  if (
+    post.kindConfidence >= 0.75 &&
+    post.metrics.charCount >= 500 &&
+    post.metrics.paragraphCount >= 3 &&
+    (post.structure.topicDrift === "high" || post.structure.topicDrift === "medium") &&
+    post.structure.scanability <= 0.88 &&
+    !hasStrongEarlyThesis &&
+    !highlyScannable
+  ) {
+    out.push(
+      rec({
+        id: "article.too_many_threads",
+        packId: ARTICLE_PACK_ID,
+        ruleId: "too_many_threads",
+        level: "hint",
+        priority: 34,
+        title: "Roter Faden kann noch klarer werden",
+        message:
+          "Der Text ist umfangreich und deckt mehrere Punkte ab. Eine kurze Leitlinie zwischen den Abschnitten kann die Orientierung erleichtern.",
+        action:
+          "Formuliere einen 1-Satz-Leitgedanken und verweise zu Beginn jedes Abschnitts kurz darauf.",
+        topicBucket: "structure",
+        tags: ["article", "structure", "focus"],
+      }),
+    );
+  }
+
+  if (
+    post.kindConfidence >= 0.75 &&
+    post.metrics.charCount >= 850 &&
+    post.metrics.paragraphCount >= 4 &&
+    Math.max(
+      post.structure.thesisStrength,
+      post.structure.problemStrength,
+      post.structure.benefitStrength,
+    ) >= 0.35 &&
+    post.structure.substance < 0.08 &&
+    !(
+      post.structure.thesisPosition !== null &&
+      post.structure.thesisPosition <= 0.3 &&
+      post.structure.scanability >= 0.86
+    ) &&
+    !(
+      post.structure.thesisStrength >= 0.75 &&
+      post.structure.thesisPosition !== null &&
+      post.structure.thesisPosition <= 0.25
+    )
+  ) {
+    out.push(
+      rec({
+        id: "article.core_claim_needs_summary",
+        packId: ARTICLE_PACK_ID,
+        ruleId: "core_claim_needs_summary",
+        level: "hint",
+        priority: 43,
+        title: "Kernaussage stärker verdichten",
+        message:
+          "Es ist viel Substanz enthalten, aber die zentrale Aussage tritt noch nicht klar genug hervor.",
+        action: "Setze einen 1-Satz-Summary-Claim im ersten Drittel oder als klare Schlusszeile.",
+        topicBucket: "clarity",
+        tags: ["article", "clarity", "summary"],
+      }),
+    );
+  }
+
+  if (
+    post.kindConfidence >= 0.75 &&
+    post.metrics.charCount >= 350 &&
+    post.metrics.paragraphCount >= 3 &&
+    post.structure.ctaStrength < 0.15 &&
+    !(
+      post.structure.thesisStrength >= 0.7 &&
+      post.structure.thesisPosition !== null &&
+      post.structure.thesisPosition <= 0.3
+    )
+  ) {
+    out.push(
+      rec({
+        id: "article.closing_takeaway_missing",
+        packId: ARTICLE_PACK_ID,
+        ruleId: "closing_takeaway_missing",
+        level: "info",
+        priority: 24,
+        title: "Sanfter Abschluss mit Takeaway fehlt",
+        message:
+          "Der Artikel endet ohne klare Einordnung, was Leser konkret mitnehmen sollen.",
+        action:
+          'Ergänze einen ruhigen Schlusssatz wie "Mein Fazit:" oder "Wichtig ist vor allem ...".',
+        topicBucket: "closing",
+        tags: ["article", "closing", "takeaway"],
+      }),
+    );
+  }
+
+  return out;
+}
+
+#/src/rules/baseline.rules.js
+import {
+  BUZZWORD_DENSE_MIN_SEGMENTS,
+  BUZZWORD_DENSE_MIN_WORDS,
+  BUZZWORD_DENSE_SEGMENT_RATIO,
+  LONG_PARAGRAPH_CHARS,
+  LONG_PARAGRAPH_SENTENCES,
+  LONG_SENTENCE_CHARS,
+  LONG_SENTENCE_WORDS,
+  WALL_OF_TEXT_MIN_POST_CHARS,
+} from "../domain/thresholds.js";
+import { evidenceFromSegment, rec } from "./_helpers.js";
+
+export const BASELINE_PACK_ID = "baseline";
+
+/**
+ * @param {import('../domain/recommendation-types.js').RuleContext} ctx
+ * @returns {import('../domain/recommendation-types.js').RuleResult[]}
+ */
+export function runBaselineRules(ctx) {
+  const { post } = ctx;
+  /** @type {import('../domain/recommendation-types.js').RuleResult[]} */
+  const out = [];
+
+  if (!post.normalized.trim()) {
+    out.push(
+      rec({
+        id: "baseline.empty_text",
+        packId: BASELINE_PACK_ID,
+        ruleId: "empty_text",
+        level: "warn",
+        priority: 100,
+        title: "Text fehlt",
+        message: "Ohne Text gibt es keine sinnvolle LinkedIn-Analyse.",
+        action: "Füge mindestens 2-3 Sätze ein, dann erneut analysieren.",
+        topicBucket: "input",
+        tags: ["baseline", "input"],
+      }),
+    );
+    return out;
+  }
+
+  const firstSentence = post.segments.find((s) => s.type === "sentence");
+  if (firstSentence?.surface.isAllCaps) {
+    out.push(
+      rec({
+        id: "baseline.all_caps_opening",
+        packId: BASELINE_PACK_ID,
+        ruleId: "all_caps_opening",
+        level: "hint",
+        priority: 38,
+        title: "Einstieg sehr betont",
+        message: "Der erste Satz wirkt durch GROSSSCHREIBUNG schnell konfrontativ.",
+        action: "Prüfe normale Schreibweise, wenn du sachlich statt alarmierend wirken willst.",
+        evidence: evidenceFromSegment(post, firstSentence.id),
+        topicBucket: "tone",
+        tags: ["baseline", "tone"],
+      }),
+    );
+  }
+
+  const longSentence = post.segments.find(
+    (s) =>
+      s.type === "sentence" &&
+      (s.surface.wordCount >= LONG_SENTENCE_WORDS || s.surface.length >= LONG_SENTENCE_CHARS),
+  );
+  if (longSentence) {
+    out.push(
+      rec({
+        id: "baseline.long_sentence",
+        packId: BASELINE_PACK_ID,
+        ruleId: "long_sentence",
+        level: "hint",
+        priority: 44,
+        title: "Sehr langer Satz",
+        message: "Ein sehr langer Satz erschwert das schnelle Erfassen im Feed.",
+        action: "Teile den Satz in zwei kurze Aussagen (Problem + Wirkung).",
+        evidence: evidenceFromSegment(post, longSentence.id),
+        topicBucket: "readability",
+        tags: ["baseline", "readability"],
+      }),
+    );
+  }
+
+  const denseParagraph = post.paragraphs.find(
+    (p) =>
+      post.metrics.charCount >= WALL_OF_TEXT_MIN_POST_CHARS &&
+      (p.text.length > LONG_PARAGRAPH_CHARS ||
+        p.sentences.filter((s) => s.type === "sentence").length > LONG_PARAGRAPH_SENTENCES),
+  );
+  if (denseParagraph) {
+    out.push(
+      rec({
+        id: "baseline.wall_of_text",
+        packId: BASELINE_PACK_ID,
+        ruleId: "wall_of_text",
+        level: "hint",
+        priority: 42,
+        title: "Absatz wirkt sehr dicht",
+        message: "Ein langer Absatz kann im LinkedIn-Feed wie eine Textwand wirken.",
+        action: "Teile den Absatz in 2-3 kürzere Blöcke. Eine Aussage pro Absatz reicht oft.",
+        evidence: [
+          {
+            text: denseParagraph.text,
+            charStart: denseParagraph.charStart,
+            charEnd: denseParagraph.charEnd,
+          },
+        ],
+        topicBucket: "readability",
+        tags: ["baseline", "readability", "formatting"],
+      }),
+    );
+  }
+
+  const buzzwordSegments = post.segments.filter(
+    (s) => s.type === "sentence" && s.signals.buzzword >= 0.5,
+  );
+  const sentenceCount = post.segments.filter((s) => s.type === "sentence").length;
+  const hasCriticalBuzzwordFraming =
+    /\b(buzzword|hype|etikett|marketing|nur|bloß|scheinbar|heißt nicht)\b/i.test(
+      post.normalized,
+    );
+  const buzzwordDense =
+    post.metrics.wordCount >= BUZZWORD_DENSE_MIN_WORDS &&
+    buzzwordSegments.length >= BUZZWORD_DENSE_MIN_SEGMENTS &&
+    buzzwordSegments.length / Math.max(1, sentenceCount) >= BUZZWORD_DENSE_SEGMENT_RATIO &&
+    !hasCriticalBuzzwordFraming;
+
+  if (buzzwordDense) {
+    out.push(
+      rec({
+        id: "baseline.buzzword_dense",
+        packId: BASELINE_PACK_ID,
+        ruleId: "buzzword_dense",
+        level: "hint",
+        priority: 34,
+        title: "Viele abstrakte Schlagworte",
+        message:
+          "Der Text nutzt mehrere Buzzwords. Das kann kompetent wirken, aber auch austauschbar.",
+        action:
+          "Ersetze 1-2 Schlagworte durch konkrete Beispiele, Zahlen oder beobachtbare Wirkung.",
+        evidence: buzzwordSegments.slice(0, 3).map((s) => ({
+          segmentId: s.id,
+          text: s.text,
+          charStart: s.charStart,
+          charEnd: s.charEnd,
+        })),
+        topicBucket: "clarity",
+        tags: ["baseline", "clarity", "buzzword"],
+      }),
+    );
+  }
+
+  const sentenceSegs = post.segments.filter((s) => s.type === "sentence");
+  const urlInSentence = sentenceSegs.find(
+    (s, i) =>
+      s.surface.hasUrl &&
+      // Frühe Links lenken meist stärker ab; spätere Verweise sind oft inhaltlich nötig.
+      i <= 1,
+  );
+  if (urlInSentence) {
+    out.push(
+      rec({
+        id: "baseline.url_in_main_text",
+        packId: BASELINE_PACK_ID,
+        ruleId: "url_in_main_text",
+        level: "info",
+        priority: 20,
+        title: "Link lenkt früh ab",
+        message: "Ein Link im Fließtext kann den Lesefluss vor dem Kernpunkt unterbrechen.",
+        action: "Setze den Link ans Ende oder in den ersten Kommentar.",
+        evidence: evidenceFromSegment(post, urlInSentence.id),
+        topicBucket: "focus",
+        tags: ["baseline", "focus"],
+      }),
+    );
+  }
+
+  return out;
+}
+
+#/src/rules/feed.rules.js
+import { evidenceFromSegment, rec } from "./_helpers.js";
+
+export const FEED_PACK_ID = "feed";
+
+/**
+ * @param {import('../domain/recommendation-types.js').RuleContext} ctx
+ * @returns {import('../domain/recommendation-types.js').RuleResult[]}
+ */
+export function runFeedRules(ctx) {
+  const { post } = ctx;
+  /** @type {import('../domain/recommendation-types.js').RuleResult[]} */
+  const out = [];
+  if (post.kind !== "feed") return out;
+
+  if (post.kindConfidence < 0.55) {
+    out.push(
+      rec({
+        id: "feed.kind_uncertain",
+        packId: FEED_PACK_ID,
+        ruleId: "kind_uncertain",
+        level: "info",
+        priority: 18,
+        title: "Texttyp unsicher",
+        message:
+          "Der Text ist evtl. eher Headline/Einladung als klassischer Feed-Post.",
+        action:
+          "Nutze den richtigen Kontext (Feed/Headline/Invite), damit Tipps präziser werden.",
+        topicBucket: "kind",
+        tags: ["feed", "kind"],
+      }),
+    );
+    return out;
+  }
+
+  if (post.structure.ctaStrength < 0.2 && post.metrics.charCount > 400) {
+    out.push(
+      rec({
+        id: "feed.cta_missing",
+        packId: FEED_PACK_ID,
+        ruleId: "cta_missing",
+        level: "hint",
+        priority: 62,
+        title: "Abschluss ohne Dialogimpuls",
+        message: "Bei längeren Feed-Posts hilft oft eine klare Anschlussbewegung.",
+        action:
+          "Ergänze eine klare Anschlussbewegung: Frage, Kommentarimpuls, Ressource oder nächste Handlung.",
+        topicBucket: "cta",
+        tags: ["feed", "cta", "engagement"],
+      }),
+    );
+  }
+
+  const thesisSegment = post.structure.strongestThesisSegmentId
+    ? post.segments.find((s) => s.id === post.structure.strongestThesisSegmentId)
+    : null;
+
+  const thesisAfterFold =
+    thesisSegment &&
+    post.metrics.charCount > post.fold.approximateVisibleChars + 120 &&
+    post.structure.thesisStrength >= 0.35 &&
+    thesisSegment.charStart > post.fold.approximateVisibleChars;
+
+  if (thesisAfterFold) {
+    out.push(
+      rec({
+        id: "feed.thesis_after_fold",
+        packId: FEED_PACK_ID,
+        ruleId: "thesis_after_fold",
+        level: "hint",
+        priority: 66,
+        title: "Kernthese liegt hinter dem Fold",
+        message: "Die stärkste Aussage erscheint vermutlich erst nach „Mehr anzeigen“.",
+        action: "Ziehe die Kernaussage oder einen starken Vorgriff in die ersten 1-2 Zeilen.",
+        evidence: evidenceFromSegment(post, thesisSegment.id),
+        topicBucket: "structure",
+        conflictsWith: ["feed.thesis_too_late", "baseline.empty_text"],
+        tags: ["feed", "fold", "thesis"],
+      }),
+    );
+  }
+
+  if (
+    !thesisAfterFold &&
+    post.structure.thesisPosition !== null &&
+    post.structure.thesisPosition > 0.55 &&
+    post.structure.thesisStrength >= 0.35
+  ) {
+    out.push(
+      rec({
+        id: "feed.thesis_too_late",
+        packId: FEED_PACK_ID,
+        ruleId: "thesis_too_late",
+        level: "hint",
+        priority: 54,
+        title: "Kernthese kommt spät",
+        message: "Dein stärkster Punkt erscheint spät und verliert frühe Aufmerksamkeit.",
+        action: "Ziehe die Kernaussage in Satz 1 oder 2; Details danach.",
+        topicBucket: "structure",
+        conflictsWith: ["baseline.empty_text"],
+        tags: ["feed", "structure", "thesis"],
+      }),
+    );
+  }
+
+  return out;
+}
+
+#/src/rules/headline.rules.js
+import { rec } from "./_helpers.js";
+
+export const HEADLINE_PACK_ID = "headline";
+
+/**
+ * AP7-Skeleton für Headline-Texte.
+ * @param {import('../domain/recommendation-types.js').RuleContext} ctx
+ * @returns {import('../domain/recommendation-types.js').RuleResult[]}
+ */
+export function runHeadlineRules(ctx) {
+  const { post } = ctx;
+  if (post.kind !== "headline" || post.kindConfidence < 0.55) return [];
+  if (post.metrics.wordCount >= 12) return [];
+  return [
+    rec({
+      id: "headline.too_short",
+      packId: HEADLINE_PACK_ID,
+      ruleId: "too_short",
+      level: "info",
+      priority: 26,
+      title: "Headline sehr knapp",
+      message: "Die Headline ist prägnant, lässt den konkreten Nutzen aber offen.",
+      action: "Ergänze 2-4 Wörter mit Zielgruppe oder Ergebnis.",
+      topicBucket: "clarity",
+      tags: ["headline", "clarity"],
+    }),
+  ];
+}
+
+#/src/rules/invite.rules.js
+import { rec } from "./_helpers.js";
+
+export const INVITE_PACK_ID = "invite";
+
+/**
+ * AP7-Skeleton: wenige sichere Checks, Detailausbau folgt.
+ * @param {import('../domain/recommendation-types.js').RuleContext} ctx
+ * @returns {import('../domain/recommendation-types.js').RuleResult[]}
+ */
+export function runInviteRules(ctx) {
+  const { post } = ctx;
+  if (post.kind !== "invite" || post.kindConfidence < 0.55) return [];
+  if (post.metrics.wordCount <= 60) return [];
+  return [
+    rec({
+      id: "invite.too_long",
+      packId: INVITE_PACK_ID,
+      ruleId: "too_long",
+      level: "hint",
+      priority: 42,
+      title: "Einladung sehr ausführlich",
+      message: "Beim Erstkontakt funktionieren oft kürzere, klar fokussierte Anfragen besser.",
+      action: "Kürze auf Anlass + kurzer Bezug + freundlicher Abschluss.",
+      topicBucket: "brevity",
+      tags: ["invite", "brevity"],
+    }),
+  ];
+}
+
+#/src/rules/risk.rules.js
+import { evidenceFromSegment, rec } from "./_helpers.js";
+
+export const RISK_PACK_ID = "risk";
+
+/**
+ * Konservativer Guardrail gegen Überwarnung:
+ * Wenn ein sensibler Begriff explizit als Negativbeispiel/Kritik eingeordnet wird,
+ * erzeugen wir keine harte sensitive-Rule.
+ * @param {string} text
+ */
+function isDistancedContext(text) {
+  const t = text ?? "";
+  const hasMarker = /\b(negativbeispiel|kritik|kritisch|einordn|distanzier|warnung)\b/i.test(t);
+  const hasQuotedKeyword = /["'„][^"'”]{0,40}(Schwarzarbeit|Steuerhinterziehung|illegal|Betrug)[^"'”]{0,40}["'”]/i.test(
+    t,
+  );
+  return hasMarker || hasQuotedKeyword;
+}
+
+/**
+ * @param {import('../domain/recommendation-types.js').RuleContext} ctx
+ * @returns {import('../domain/recommendation-types.js').RuleResult[]}
+ */
+export function runRiskRules(ctx) {
+  const { post } = ctx;
+  /** @type {import('../domain/recommendation-types.js').RuleResult[]} */
+  const out = [];
+
+  for (const r of post.risks) {
+    if (r.code === "sensitive_keyword") {
+      const segText = post.segments.find((s) => s.id === r.segmentId)?.text ?? "";
+      if (isDistancedContext(segText)) continue;
+      out.push(
+        rec({
+          id: `risk.sensitive.${r.id}`,
+          packId: RISK_PACK_ID,
+          ruleId: "sensitive_keyword",
+          level: "risk",
+          priority: 90,
+          title: "Missverständlicher Begriff möglich",
+          message:
+            "Ein Begriff kann je nach Leserschaft rechtlich oder reputativ heikel verstanden werden.",
+          action:
+            "Präzisiere den Kontext in einem Zusatzsatz und vermeide missverständliche Verkürzung.",
+          evidence: evidenceFromSegment(post, r.segmentId),
+          topicBucket: "risk",
+          tags: ["risk", "compliance"],
+        }),
+      );
+    }
+  }
+
+  if (post.structure.risk >= 0.6) {
+    out.push(
+      rec({
+        id: "risk.overall_high",
+        packId: RISK_PACK_ID,
+        ruleId: "overall_high",
+        level: "warn",
+        priority: 72,
+        title: "Aussage mit erhöhtem Interpretationsrisiko",
+        message: "Mehrere Formulierungen können zugespitzt oder falsch ausgelegt werden.",
+        action:
+          "Prüfe zuerst den stärksten Claim: Was ist belegt, was ist Meinung? Formuliere trennscharf.",
+        topicBucket: "risk",
+        tags: ["risk", "overall"],
+      }),
+    );
+  }
+
+  return out;
+}
+
+#/src/rules/run-rule-packs.js
+import { analyzePost } from "../core/analyze-post.js";
+import { runArticleRules, ARTICLE_PACK_ID } from "./article.rules.js";
+import { runBaselineRules, BASELINE_PACK_ID } from "./baseline.rules.js";
+import { runFeedRules, FEED_PACK_ID } from "./feed.rules.js";
+import { runHeadlineRules, HEADLINE_PACK_ID } from "./headline.rules.js";
+import { runInviteRules, INVITE_PACK_ID } from "./invite.rules.js";
+import { runRiskRules, RISK_PACK_ID } from "./risk.rules.js";
+
+export const DEFAULT_RULE_PACKS = [BASELINE_PACK_ID, FEED_PACK_ID, RISK_PACK_ID];
+
+/** @type {Record<string, (ctx: import('../domain/recommendation-types.js').RuleContext) => import('../domain/recommendation-types.js').RuleResult[]>} */
+const PACK_RUNNERS = {
+  [BASELINE_PACK_ID]: runBaselineRules,
+  [FEED_PACK_ID]: runFeedRules,
+  [RISK_PACK_ID]: runRiskRules,
+  [INVITE_PACK_ID]: runInviteRules,
+  [HEADLINE_PACK_ID]: runHeadlineRules,
+  [ARTICLE_PACK_ID]: runArticleRules,
+};
+
+/**
+ * @param {import('../domain/types.js').PostModel} post
+ * @param {string[]} [selectedPacks]
+ * @returns {import('../domain/recommendation-types.js').RuleResult[]}
+ */
+export function runRulePacks(post, selectedPacks = DEFAULT_RULE_PACKS) {
+  const packs = selectedPacks.filter((p) => PACK_RUNNERS[p]);
+  const ctx = { post, meta: { selectedPacks: packs } };
+  /** @type {import('../domain/recommendation-types.js').RuleResult[]} */
+  const out = [];
+  for (const p of packs) {
+    out.push(...PACK_RUNNERS[p](ctx));
+  }
+  return out.sort((a, b) => b.priority - a.priority);
+}
+
+/**
+ * Komfortfunktion: Text analysieren + ausgewählte Packs ausführen.
+ * @param {string | null | undefined} raw
+ * @param {{ selectedPacks?: string[], analyzeOptions?: import('../domain/types.js').AnalyzePostOptions }} [options]
+ */
+export function runRulePacksOnRaw(raw, options = {}) {
+  const post = analyzePost(raw, options.analyzeOptions);
+  return runRulePacks(post, options.selectedPacks);
+}
+
+
+#/src/utils/regex.js
+/**
+ * Zentrale Muster für Surface-Features (AP2). Keine Imports aus core/.
+ */
+
+/** https?-URLs bis Whitespace/Klammer */
+export const RE_URL = /https?:\/\/[^\s)\]>]+/i;
+
+/** LinkedIn-ähnliche Hashtags (#Wort, Unicode-Buchstaben/Zahlen) */
+export const RE_HASHTAG = /#[\p{L}\p{N}_]+/u;
+
+/** Vorkommen von `?` im String (Rohtest; Surface nutzt {@link hasQuestionMarkOutsideHttpUrls}) */
+export const RE_QUESTION_MARK = /\?/;
+
+/** Ziffern, Prozent, Euro (inkl. „100 %“) */
+export const RE_NUMBER = /\d|[%€\u20AC‰]/;
+
+/** Schwache Satzanfänge (DE), erster Wortlaut */
+export const RE_WEAK_OPENER =
+  /^(Dabei|Außerdem|Daher|Deshalb|Somit|Diese|Dieses|Dieser|Zudem|Ferner|Zunächst|Und zwar)\b/i;
+
+/** Mindestens drei aufeinanderfolgende „Emoji“-Grapheme (inkl. ZWJ-Sequenzen vereinfacht). */
+export const RE_EMOJI_RUN = /(?:\p{Extended_Pictographic}(?:\u200d\p{Extended_Pictographic}|\uFE0F)*){3}/u;
+
+/**
+ * @param {string} s
+ */
+export function hasUrl(s) {
+  return RE_URL.test(s);
+}
+
+/**
+ * @param {string} s
+ */
+export function hasHashtag(s) {
+  return RE_HASHTAG.test(s);
+}
+
+/**
+ * Rohtest: irgendwo ein `?` (inkl. in URL-Queries).
+ * @param {string} s
+ */
+export function hasQuestionMark(s) {
+  return RE_QUESTION_MARK.test(s ?? "");
+}
+
+/**
+ * `?` nur außerhalb von `http(s):`-URLs (gleiche Spanne wie {@link RE_URL}).
+ * Für `SurfaceFeatures.hasQuestion` / AP3-`cta`, um Querystrings nicht als Satzfrage zu zählen.
+ *
+ * @param {string} s
+ */
+export function hasQuestionMarkOutsideHttpUrls(s) {
+  const t = s ?? "";
+  const stripUrls = new RegExp(RE_URL.source, `${RE_URL.flags}g`);
+  const withoutUrls = t.replace(stripUrls, "");
+  return RE_QUESTION_MARK.test(withoutUrls);
+}
+
+/**
+ * @param {string} s
+ */
+export function hasNumberLike(s) {
+  return RE_NUMBER.test(s);
+}
+
+/**
+ * @param {string} s
+ */
+export function hasEmojiRun(s) {
+  return RE_EMOJI_RUN.test(s);
+}
+
+/**
+ * @param {string} s — Segmenttext (getrimmt für ersten Token)
+ */
+export function startsWithWeakOpener(s) {
+  const t = s.trim();
+  if (!t) return false;
+  return RE_WEAK_OPENER.test(t);
+}
+
+#/src/utils/signal-patterns.js
+/**
+ * Textmuster für SignalScores (AP3, DE-First).
+ * Zentral gepflegt — Regeln lesen vorzugsweise Signale, nicht Rohtext (Zieldokument §5 Konvention).
+ */
+
+/** @type {RegExp[]} */
+export const CONTRAST_PATTERNS = [
+  /\bnicht\b[\s\S]{0,120}\bsondern\b/i,
+  /\beigentlich\b[\s\S]{0,80}\baber\b/i,
+  /\bdoch\b/i,
+  /\btrotzdem\b/i,
+];
+
+/** @type {RegExp[]} */
+export const PAIN_PATTERNS = [
+  /\bProblem(e|)?\b/i,
+  /\bscheitert(e|)?\b/i,
+  /\bAufwand\b/i,
+  /\btut weh\b/i,
+  /\bRisiko\b/i,
+  /\bvergisst\b/i,
+  /\bHerausforderung\b/i,
+  /\bzu hoch\b/i,
+  /\bReibung\b/i,
+];
+
+/** @type {RegExp[]} */
+export const BENEFIT_PATTERNS = [
+  /\bÜberblick\b/i,
+  /\bweniger Aufwand\b/i,
+  /\beinfacher\b/i,
+  /\bHebel\b/i,
+  /\bspart\b/i,
+  /\bNutzen\b/i,
+  /\bklar(er|e)?\b/i,
+  /\bhilft\b/i,
+  /\bsparen\b/i,
+];
+
+/** @type {RegExp[]} */
+export const PERSONAL_PATTERNS = [
+  /\bich\b/i,
+  /\bmein(e|er|em|en)?\b/i,
+  /\bmir\b/i,
+  /\bbei mir\b/i,
+  /\buns\b/i,
+  /\bwir\b/i,
+];
+
+/** @type {RegExp[]} */
+export const SPECIFICITY_PATTERNS = [/\d/, /€/, /%/, /\b\d+[.,]\d+\b/];
+
+/** @type {RegExp[]} */
+export const RISK_KEYWORD_PATTERNS = [
+  /\bSchwarzarbeit\b/i,
+  /\bSteuerhinterziehung\b/i,
+  /\billegal(e|er|es)?\b/i,
+  /\bBetrug\b/i,
+];
+
+/** @type {RegExp[]} */
+export const PROOF_PATTERNS = [
+  /\bStudie(n)?\b/i,
+  /\bDaten\b/i,
+  /\bBeleg\b/i,
+  /\bQuelle(n)?\b/i,
+  /\bStatistik\b/i,
+  /\bBeweis\b/i,
+  /\bnachgewiesen\b/i,
+  /\bForschung\b/i,
+];
+
+/** @type {RegExp[]} */
+export const EXAMPLE_PATTERNS = [
+  /z\.\s*B\.|z\.B\.|zum Beispiel|beispielsweise|case study|Beispiel:/i,
+];
+
+/** Rhetorische Frage / Leserbezug (CTA-Heuristik) */
+export const CTA_QUESTION_LEAD = /\b(Was|Wie|Welche|Warum|Wer|Wo|Welchen|Welchem)\b/i;
+export const CTA_AUDIENCE_PRONOUN = /\b(ihr|du|euch|uns|dir|dich|euer|dein)\b/i;
+export const CTA_PATTERNS = {
+  dialog: [
+    /\bwie\s+(siehst|seht)\s+(du|ihr)\s+das\b/i,
+    /\bwas\s+(denkst|denkt)\s+(du|ihr)\b/i,
+    /\bwelche\s+erfahrung(en)?\s+hast\s+du\b/i,
+  ],
+  comment: [
+    /\bschreib(e|t)?\s+(es\s+)?(in\s+)?die\s+kommentare\b/i,
+    /\bteile\s+(deine|eure)\s+(meinung|erfahrung)\b/i,
+    /\bkommentier(e|t)?\s+(gern|gerne|mit)\b/i,
+  ],
+  dm: [
+    /\bschreib(e)?\s+mir\s+(eine\s+)?dm\b/i,
+    /\bmeld(e)?\s+dich\s+per\s+dm\b/i,
+    /\bper\s+dm\s+(melden|schreiben)\b/i,
+  ],
+  follow: [
+    /\bfolge\s+mir\s+für\b/i,
+    /\bfolg(e|t)\s+mir,\s+wenn\b/i,
+    /\babonnier(e)?\s+(mich|meinen\s+newsletter)\b/i,
+  ],
+  resource: [
+    /\blink\s+im\s+(ersten\s+)?kommentar\b/i,
+    /\bdie\s+(checkliste|vorlage|template)\s+(gibt|findest)\s+du\b/i,
+    /\bdownload\s+(im|unter|hier)\b/i,
+  ],
+  reflection: [
+    /\bprüf(e)?\s+(beim|in deinem|vor dem)\b/i,
+    /\bachte\s+(beim|in deinem|vor dem)\b/i,
+    /\bversuch(e)?\s+beim\s+nächsten\s+mal\b/i,
+  ],
+  contact: [
+    /\bmeld(e)?\s+dich,\s+wenn\b/i,
+    /\bsprich\s+mich\s+an,\s+wenn\b/i,
+    /\bwenn\s+du\s+.*\s+(brauchst|suchst),?\s+meld(e)?\s+dich\b/i,
+  ],
+};
+
+/** Buzzword / Corporate-Sprech (heuristisch) */
+export const BUZZWORD_PATTERN =
+  /\b(Synergie|synergy|Disruption|disrupt|Holistic|holistisch|Paradigm|paradigma|Blockchain|AI-First|Leverage|leverage|Full-Stack|Game\s*Changer|Mindset|deep\s*dive|Think\s*outside|empower|Empowerment|Impact|impactful|scalieren|skalieren)\b/i;
+
+#/src/utils/text-metrics.js
+/**
+ * Kanonische Textmetriken (AP1/AP2). Konsistent mit `buildNormalizedDocument`-Metriken.
+ */
+
+/**
+ * @param {string} s
+ */
+export function countWords(s) {
+  if (!s || !s.trim()) return 0;
+  return s.trim().split(/\s+/).length;
+}
+
+/**
+ * @param {string} s
+ */
+export function countCommas(s) {
+  if (!s) return 0;
+  const m = s.match(/,/g);
+  return m ? m.length : 0;
+}
+

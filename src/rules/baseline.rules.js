@@ -1,4 +1,13 @@
-import { LONG_SENTENCE_CHARS, LONG_SENTENCE_WORDS } from "../domain/thresholds.js";
+import {
+  BUZZWORD_DENSE_MIN_SEGMENTS,
+  BUZZWORD_DENSE_MIN_WORDS,
+  BUZZWORD_DENSE_SEGMENT_RATIO,
+  LONG_PARAGRAPH_CHARS,
+  LONG_PARAGRAPH_SENTENCES,
+  LONG_SENTENCE_CHARS,
+  LONG_SENTENCE_WORDS,
+  WALL_OF_TEXT_MIN_POST_CHARS,
+} from "../domain/thresholds.js";
 import { evidenceFromSegment, rec } from "./_helpers.js";
 
 export const BASELINE_PACK_ID = "baseline";
@@ -62,12 +71,81 @@ export function runBaselineRules(ctx) {
         ruleId: "long_sentence",
         level: "hint",
         priority: 44,
-        title: "Langer Satz im Einstieg",
+        title: "Sehr langer Satz",
         message: "Ein sehr langer Satz erschwert das schnelle Erfassen im Feed.",
         action: "Teile den Satz in zwei kurze Aussagen (Problem + Wirkung).",
         evidence: evidenceFromSegment(post, longSentence.id),
         topicBucket: "readability",
         tags: ["baseline", "readability"],
+      }),
+    );
+  }
+
+  const denseParagraph = post.paragraphs.find(
+    (p) =>
+      post.metrics.charCount >= WALL_OF_TEXT_MIN_POST_CHARS &&
+      (p.text.length > LONG_PARAGRAPH_CHARS ||
+        p.sentences.filter((s) => s.type === "sentence").length > LONG_PARAGRAPH_SENTENCES),
+  );
+  if (denseParagraph) {
+    out.push(
+      rec({
+        id: "baseline.wall_of_text",
+        packId: BASELINE_PACK_ID,
+        ruleId: "wall_of_text",
+        level: "hint",
+        priority: 42,
+        title: "Absatz wirkt sehr dicht",
+        message: "Ein langer Absatz kann im LinkedIn-Feed wie eine Textwand wirken.",
+        action: "Teile den Absatz in 2-3 kürzere Blöcke. Eine Aussage pro Absatz reicht oft.",
+        evidence: [
+          {
+            text: denseParagraph.text,
+            charStart: denseParagraph.charStart,
+            charEnd: denseParagraph.charEnd,
+          },
+        ],
+        topicBucket: "readability",
+        tags: ["baseline", "readability", "formatting"],
+      }),
+    );
+  }
+
+  const buzzwordSegments = post.segments.filter(
+    (s) => s.type === "sentence" && s.signals.buzzword >= 0.5,
+  );
+  const sentenceCount = post.segments.filter((s) => s.type === "sentence").length;
+  const hasCriticalBuzzwordFraming =
+    /\b(buzzword|hype|etikett|marketing|nur|bloß|scheinbar|heißt nicht)\b/i.test(
+      post.normalized,
+    );
+  const buzzwordDense =
+    post.metrics.wordCount >= BUZZWORD_DENSE_MIN_WORDS &&
+    buzzwordSegments.length >= BUZZWORD_DENSE_MIN_SEGMENTS &&
+    buzzwordSegments.length / Math.max(1, sentenceCount) >= BUZZWORD_DENSE_SEGMENT_RATIO &&
+    !hasCriticalBuzzwordFraming;
+
+  if (buzzwordDense) {
+    out.push(
+      rec({
+        id: "baseline.buzzword_dense",
+        packId: BASELINE_PACK_ID,
+        ruleId: "buzzword_dense",
+        level: "hint",
+        priority: 34,
+        title: "Viele abstrakte Schlagworte",
+        message:
+          "Der Text nutzt mehrere Buzzwords. Das kann kompetent wirken, aber auch austauschbar.",
+        action:
+          "Ersetze 1-2 Schlagworte durch konkrete Beispiele, Zahlen oder beobachtbare Wirkung.",
+        evidence: buzzwordSegments.slice(0, 3).map((s) => ({
+          segmentId: s.id,
+          text: s.text,
+          charStart: s.charStart,
+          charEnd: s.charEnd,
+        })),
+        topicBucket: "clarity",
+        tags: ["baseline", "clarity", "buzzword"],
       }),
     );
   }

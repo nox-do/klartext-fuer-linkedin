@@ -3,6 +3,7 @@ import {
   BUZZWORD_PATTERN,
   CONTRAST_PATTERNS,
   CTA_AUDIENCE_PRONOUN,
+  CTA_PATTERNS,
   CTA_QUESTION_LEAD,
   EXAMPLE_PATTERNS,
   PAIN_PATTERNS,
@@ -28,7 +29,6 @@ function clamp01(x) {
 function countPatternMatches(patterns, text) {
   let n = 0;
   for (const re of patterns) {
-    re.lastIndex = 0;
     if (re.test(text)) n++;
   }
   return n;
@@ -38,13 +38,10 @@ function countPatternMatches(patterns, text) {
  * @param {string} text
  */
 function scoreContrast(text) {
-  CONTRAST_PATTERNS[0].lastIndex = 0;
   if (CONTRAST_PATTERNS[0].test(text)) return 0.88;
-  CONTRAST_PATTERNS[1].lastIndex = 0;
   if (CONTRAST_PATTERNS[1].test(text)) return 0.76;
   let s = 0;
   for (let i = 2; i < CONTRAST_PATTERNS.length; i++) {
-    CONTRAST_PATTERNS[i].lastIndex = 0;
     if (CONTRAST_PATTERNS[i].test(text)) s = Math.max(s, 0.44);
   }
   return s;
@@ -85,7 +82,6 @@ function scoreSpecificity(surface, text) {
   if (surface.hasNumber) s += 0.42;
   if (surface.hasUrl) s += 0.22;
   for (const re of SPECIFICITY_PATTERNS) {
-    re.lastIndex = 0;
     if (re.test(text)) {
       s += 0.28;
       break;
@@ -108,16 +104,38 @@ function scoreRisk(text) {
  * @param {string} text
  */
 function scoreCta(surface, text) {
-  if (!surface.hasQuestion) return 0;
   const t = text.trim();
-  CTA_QUESTION_LEAD.lastIndex = 0;
-  CTA_AUDIENCE_PRONOUN.lastIndex = 0;
+  const ctaTypes = countCtaTypes(t);
+
+  if (ctaTypes.length > 0) {
+    const hasStrongIntent = ctaTypes.some((type) =>
+      ["comment", "dm", "follow", "resource", "contact"].includes(type),
+    );
+    if (hasStrongIntent) {
+      return clamp01(0.72 + (ctaTypes.length - 1) * 0.08);
+    }
+    return 0.58;
+  }
+
+  if (!surface.hasQuestion) return 0;
   const lead = CTA_QUESTION_LEAD.test(t);
   const aud = CTA_AUDIENCE_PRONOUN.test(t);
   if (lead && aud) return 0.88;
   if (lead && t.endsWith("?")) return 0.82;
   if (aud && t.includes("?")) return 0.78;
-  return 0.58;
+  return 0.5;
+}
+
+/**
+ * @param {string} text
+ */
+function countCtaTypes(text) {
+  /** @type {string[]} */
+  const found = [];
+  for (const [type, patterns] of Object.entries(CTA_PATTERNS)) {
+    if (patterns.some((re) => re.test(text))) found.push(type);
+  }
+  return found;
 }
 
 /**
@@ -136,7 +154,6 @@ function scoreProof(surface, text) {
  */
 function scoreExample(text) {
   for (const re of EXAMPLE_PATTERNS) {
-    re.lastIndex = 0;
     if (re.test(text)) return 0.74;
   }
   return 0;
@@ -146,7 +163,6 @@ function scoreExample(text) {
  * @param {string} text
  */
 function scoreBuzzword(text) {
-  BUZZWORD_PATTERN.lastIndex = 0;
   if (!BUZZWORD_PATTERN.test(text)) return 0;
   return 0.62;
 }

@@ -1,4 +1,4 @@
-import { rec } from "./_helpers.js";
+import { evidenceFromSegment, rec } from "./_helpers.js";
 
 export const FEED_PACK_ID = "feed";
 
@@ -41,15 +41,46 @@ export function runFeedRules(ctx) {
         level: "hint",
         priority: 62,
         title: "Abschluss ohne Dialogimpuls",
-        message: "Bei längeren Feed-Posts hilft oft eine konkrete Abschlussfrage für Anschluss.",
-        action: "Ergänze eine Frage, die mit Ja/Nein nicht beantwortbar ist.",
+        message: "Bei längeren Feed-Posts hilft oft eine klare Anschlussbewegung.",
+        action:
+          "Ergänze eine klare Anschlussbewegung: Frage, Kommentarimpuls, Ressource oder nächste Handlung.",
         topicBucket: "cta",
         tags: ["feed", "cta", "engagement"],
       }),
     );
   }
 
+  const thesisSegment = post.structure.strongestThesisSegmentId
+    ? post.segments.find((s) => s.id === post.structure.strongestThesisSegmentId)
+    : null;
+
+  const thesisAfterFold =
+    thesisSegment &&
+    post.metrics.charCount > post.fold.approximateVisibleChars + 120 &&
+    post.structure.thesisStrength >= 0.35 &&
+    thesisSegment.charStart > post.fold.approximateVisibleChars;
+
+  if (thesisAfterFold) {
+    out.push(
+      rec({
+        id: "feed.thesis_after_fold",
+        packId: FEED_PACK_ID,
+        ruleId: "thesis_after_fold",
+        level: "hint",
+        priority: 66,
+        title: "Kernthese liegt hinter dem Fold",
+        message: "Die stärkste Aussage erscheint vermutlich erst nach „Mehr anzeigen“.",
+        action: "Ziehe die Kernaussage oder einen starken Vorgriff in die ersten 1-2 Zeilen.",
+        evidence: evidenceFromSegment(post, thesisSegment.id),
+        topicBucket: "structure",
+        conflictsWith: ["feed.thesis_too_late", "baseline.empty_text"],
+        tags: ["feed", "fold", "thesis"],
+      }),
+    );
+  }
+
   if (
+    !thesisAfterFold &&
     post.structure.thesisPosition !== null &&
     post.structure.thesisPosition > 0.55 &&
     post.structure.thesisStrength >= 0.35
@@ -60,7 +91,7 @@ export function runFeedRules(ctx) {
         packId: FEED_PACK_ID,
         ruleId: "thesis_too_late",
         level: "hint",
-        priority: 58,
+        priority: 54,
         title: "Kernthese kommt spät",
         message: "Dein stärkster Punkt erscheint spät und verliert frühe Aufmerksamkeit.",
         action: "Ziehe die Kernaussage in Satz 1 oder 2; Details danach.",

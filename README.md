@@ -10,10 +10,6 @@ Neuaufbau auf dem **Grundstock**: lokale Mini-App ohne Server-Logik (Thema war i
 
 Dann die angezeigte URL im Browser öffnen (ES-Module brauchen in der Regel `http://`, nicht `file://`).
 
-## Archiv
-
-Die vorherige monolithische Variante (Module, Fixtures, Snippet-Tests, Dump) liegt unter **`archive/`** unverändert als Referenz.
-
 ## Tests
 
 ```bash

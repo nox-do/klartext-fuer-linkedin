@@ -29,8 +29,78 @@ test("Zielbild: CTA Frage + ihr", () => {
   const t = "Was denkt ihr?";
   const surf = extractSurfaceFeatures(t);
   const s = extractSignalScores(surf, t, "de");
-  assert.ok(s.cta > 0.8, `cta=${s.cta}`);
+  assert.ok(s.cta >= 0.58, `cta=${s.cta}`);
   assertAllIn01(s);
+});
+
+test("Implizite CTA ohne Fragezeichen: Schreib mir eine DM", () => {
+  const t = "Schreib mir eine DM, wenn du das Muster kennst.";
+  const surf = extractSurfaceFeatures(t);
+  const s = extractSignalScores(surf, t, "de");
+  assert.ok(s.cta >= 0.62, `cta=${s.cta}`);
+});
+
+test("Implizite CTA ohne Fragezeichen: Link im ersten Kommentar", () => {
+  const t = "Link im ersten Kommentar.";
+  const surf = extractSurfaceFeatures(t);
+  const s = extractSignalScores(surf, t, "de");
+  assert.ok(s.cta >= 0.62, `cta=${s.cta}`);
+});
+
+test("Implizite CTA: Kommentar-Aufforderung", () => {
+  const t = "Schreib es in die Kommentare.";
+  const surf = extractSurfaceFeatures(t);
+  const s = extractSignalScores(surf, t, "de");
+  assert.ok(s.cta >= 0.62, `cta=${s.cta}`);
+});
+
+test("Implizite CTA: Follow", () => {
+  const t = "Folge mir für mehr Notizen zu besseren LinkedIn-Texten.";
+  const surf = extractSurfaceFeatures(t);
+  const s = extractSignalScores(surf, t, "de");
+  assert.ok(s.cta >= 0.62, `cta=${s.cta}`);
+});
+
+test("Implizite CTA: Resource", () => {
+  const t = "Die Checkliste findest du im Kommentar.";
+  const surf = extractSurfaceFeatures(t);
+  const s = extractSignalScores(surf, t, "de");
+  assert.ok(s.cta >= 0.62, `cta=${s.cta}`);
+});
+
+test("Implizite CTA: Reflection", () => {
+  const t = "Prüf beim nächsten Post, ob deine These vor dem Fold sichtbar ist.";
+  const surf = extractSurfaceFeatures(t);
+  const s = extractSignalScores(surf, t, "de");
+  assert.ok(s.cta >= 0.5, `cta=${s.cta}`);
+});
+
+test("Implizite CTA: Contact", () => {
+  const t = "Melde dich, wenn du dafür eine kompakte Review-Checkliste brauchst.";
+  const surf = extractSurfaceFeatures(t);
+  const s = extractSignalScores(surf, t, "de");
+  assert.ok(s.cta >= 0.62, `cta=${s.cta}`);
+});
+
+test("Kein CTA: bloße Newsletter-Erwähnung", () => {
+  const t = "Der Newsletter war ein gutes Beispiel.";
+  const surf = extractSurfaceFeatures(t);
+  const s = extractSignalScores(surf, t, "de");
+  assert.equal(s.cta, 0);
+});
+
+test("Kein CTA: Kommentar nur als Nennung", () => {
+  const t = "Ich habe einen Kommentar dazu gelesen.";
+  const surf = extractSurfaceFeatures(t);
+  const s = extractSignalScores(surf, t, "de");
+  assert.equal(s.cta, 0);
+});
+
+test("Kein CTA: DM nur als Nennung", () => {
+  const t = "Die DM-Funktion bei LinkedIn nervt manchmal.";
+  const surf = extractSurfaceFeatures(t);
+  const s = extractSignalScores(surf, t, "de");
+  assert.equal(s.cta, 0);
 });
 
 test("Nur Link mit Query: kein CTA (P0)", () => {

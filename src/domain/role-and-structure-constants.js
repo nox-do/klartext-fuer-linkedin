@@ -102,8 +102,9 @@ export const TOPIC_DRIFT_SENTENCE_HIGH = 18;
 
 // --- AP5 PostKind (infer) ---
 
-export const KIND_ARTICLE_MIN_PARAGRAPHS = 3;
-export const KIND_ARTICLE_MIN_CHARS = 1200;
+export const KIND_ARTICLE_MIN_PARAGRAPHS = 6;
+export const KIND_ARTICLE_MIN_CHARS = 3500;
+export const KIND_ARTICLE_MIN_WORDS = 550;
 export const KIND_HEADLINE_MAX_WORDS = 14;
 export const KIND_HEADLINE_MAX_PARAGRAPHS = 1;
 export const KIND_HEADLINE_MAX_CHARS = 180;

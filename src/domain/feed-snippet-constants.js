@@ -1,0 +1,21 @@
+export const FEED_SNIPPET_PROFILE = {
+  lenIdealMin: 60,
+  lenIdealMax: 220,
+  lenOkMin: 40,
+  lenOkMax: 280,
+  weights: {
+    lenIdeal: 5,
+    lenOk: 2,
+    lenBad: -5,
+    question: 4,
+    contrast: 6,
+    pain: 4,
+    benefit: 3,
+    personal: 2,
+    specificity: 2,
+    weakStart: -3,
+    longSentence: -3,
+    manyCommas: -2,
+    riskKeyword: -6,
+  },
+};

@@ -6,7 +6,7 @@
 export const RE_URL = /https?:\/\/[^\s)\]>]+/i;
 
 /** LinkedIn-ähnliche Hashtags (#Wort, Unicode-Buchstaben/Zahlen) */
-export const RE_HASHTAG = /#[\p{L}\p{N}_]+/gu;
+export const RE_HASHTAG = /#[\p{L}\p{N}_]+/u;
 
 /** Vorkommen von `?` im String (Rohtest; Surface nutzt {@link hasQuestionMarkOutsideHttpUrls}) */
 export const RE_QUESTION_MARK = /\?/;
@@ -32,7 +32,6 @@ export function hasUrl(s) {
  * @param {string} s
  */
 export function hasHashtag(s) {
-  RE_HASHTAG.lastIndex = 0;
   return RE_HASHTAG.test(s);
 }
 

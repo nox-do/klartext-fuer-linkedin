@@ -8,6 +8,7 @@ import {
   BUILDER_SENSITIVE_SIGNAL_THRESHOLD,
   KIND_ARTICLE_MIN_CHARS,
   KIND_ARTICLE_MIN_PARAGRAPHS,
+  KIND_ARTICLE_MIN_WORDS,
   KIND_CONFIDENCE_ARTICLE,
   KIND_CONFIDENCE_EMPTY,
   KIND_CONFIDENCE_FEED_LONG,
@@ -98,9 +99,6 @@ function sentenceSegmentsOnly(segments) {
 function inferPostKind(normalized, metrics, options) {
   if (options.kind) return options.kind;
   if (!metrics.charCount) return "unknown";
-  if (metrics.paragraphCount >= KIND_ARTICLE_MIN_PARAGRAPHS && metrics.charCount > KIND_ARTICLE_MIN_CHARS) {
-    return "article";
-  }
   /** Einladungen oft kurz: vor „Headline“, damit Vernetzungs-Kontext nicht fälschlich als Titelzeile gilt (§5.9). */
   if (KIND_INVITE_HINT_RE.test(normalized) && metrics.wordCount < KIND_INVITE_MAX_WORDS) {
     return "invite";
@@ -111,6 +109,17 @@ function inferPostKind(normalized, metrics, options) {
     metrics.charCount < KIND_HEADLINE_MAX_CHARS
   ) {
     return "headline";
+  }
+  /**
+   * LinkedIn-Default: lange Posts bleiben Feed,
+   * außer sie sind wirklich artikelartig.
+   */
+  if (
+    metrics.paragraphCount >= KIND_ARTICLE_MIN_PARAGRAPHS &&
+    metrics.charCount > KIND_ARTICLE_MIN_CHARS &&
+    metrics.wordCount >= KIND_ARTICLE_MIN_WORDS
+  ) {
+    return "article";
   }
   return "feed";
 }
@@ -146,6 +155,7 @@ function computeStructure(sentenceSegs, normLen) {
       hookStrength: 0,
       thesisStrength: 0,
       thesisPosition: null,
+      strongestThesisSegmentId: null,
       problemStrength: 0,
       benefitStrength: 0,
       ctaStrength: 0,
@@ -160,10 +170,12 @@ function computeStructure(sentenceSegs, normLen) {
 
   let bestThesis = 0;
   let thesisCharStart = /** @type {number|null} */ (null);
+  let strongestThesisSegmentId = /** @type {string|null} */ (null);
   for (const s of sentenceSegs) {
     if (s.roles.thesis > bestThesis) {
       bestThesis = s.roles.thesis;
       thesisCharStart = s.charStart;
+      strongestThesisSegmentId = s.id;
     }
   }
 
@@ -222,6 +234,7 @@ function computeStructure(sentenceSegs, normLen) {
     hookStrength,
     thesisStrength: clamp01(bestThesis * STRUCTURE_THESIS_PEAK_SCALE),
     thesisPosition,
+    strongestThesisSegmentId,
     problemStrength: clamp01(maxRole("problem") * STRUCTURE_ROLE_PEAK_SCALE),
     benefitStrength: clamp01(maxRole("benefit") * STRUCTURE_ROLE_PEAK_SCALE),
     ctaStrength,

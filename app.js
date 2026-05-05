@@ -60,9 +60,24 @@ function renderTop3(result) {
  */
 function renderPreview(result) {
   if (!previewEl) return;
-  const fold = result.post.fold;
-  previewEl.textContent =
-    fold.bestSnippetText || "Keine Snippet-Vorschau verfügbar.";
+  const parts = previewParts(result);
+  if (!parts.header) {
+    previewEl.textContent = "Keine Snippet-Vorschau verfügbar.";
+    return;
+  }
+
+  previewEl.innerHTML = "";
+  const head = document.createElement("div");
+  head.className = "preview-head";
+  head.textContent = parts.header;
+  previewEl.appendChild(head);
+
+  if (parts.intro) {
+    const intro = document.createElement("p");
+    intro.className = "preview-intro";
+    intro.textContent = parts.intro;
+    previewEl.appendChild(intro);
+  }
 }
 
 /**
@@ -118,7 +133,50 @@ function top3AsText(result) {
  * @param {ReturnType<typeof composeRecommendationsFromRaw>} result
  */
 function previewAsText(result) {
-  return result.post.fold?.bestSnippetText || "Keine Snippet-Vorschau verfügbar.";
+  const parts = previewParts(result);
+  if (!parts.header) return "Keine Snippet-Vorschau verfügbar.";
+  return parts.intro ? `${parts.header}\n\n${parts.intro}` : parts.header;
+}
+
+/**
+ * @param {string} s
+ * @param {number} maxLen
+ */
+function trimEllipsis(s, maxLen) {
+  const t = (s ?? "").trim();
+  if (t.length <= maxLen) return t;
+  return `${t.slice(0, Math.max(0, maxLen - 1)).trimEnd()}…`;
+}
+
+/**
+ * @param {ReturnType<typeof composeRecommendationsFromRaw>} result
+ */
+function previewParts(result) {
+  const fold = result.post.fold ?? {};
+  const header = (fold.firstLine || fold.bestSnippetText || "").trim();
+  if (result.post.kind !== "article") {
+    return { header };
+  }
+
+  const paragraphs = (result.post.paragraphs ?? [])
+    .map((p) => (p.text ?? "").trim())
+    .filter(Boolean);
+
+  let introSource =
+    paragraphs.find((p, i) => i > 0 && p !== header) ||
+    paragraphs.find((p) => p !== header) ||
+    "";
+
+  if (!introSource) {
+    const sentenceTexts = (result.post.segments ?? [])
+      .filter((s) => s.type === "sentence")
+      .map((s) => (s.text ?? "").trim())
+      .filter((t) => t && t !== header);
+    introSource = sentenceTexts.slice(0, 2).join(" ");
+  }
+
+  const intro = trimEllipsis(introSource, 380);
+  return { header, intro };
 }
 
 let lastResult = null;

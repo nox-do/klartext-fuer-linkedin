@@ -6,30 +6,9 @@
  */
 
 import { FEED_FOLD_CHARS } from "../domain/fold-constants.js";
+import { FEED_SNIPPET_PROFILE } from "../domain/feed-snippet-constants.js";
 
 /** @typedef {{ id: string, text: string, score: number, flags: string[] }} RankedSnippet */
-
-const DEFAULT_PROFILE = {
-  lenIdealMin: 60,
-  lenIdealMax: 220,
-  lenOkMin: 40,
-  lenOkMax: 280,
-  weights: {
-    lenIdeal: 5,
-    lenOk: 2,
-    lenBad: -5,
-    question: 4,
-    contrast: 6,
-    pain: 4,
-    benefit: 3,
-    personal: 2,
-    specificity: 2,
-    weakStart: -3,
-    longSentence: -3,
-    manyCommas: -2,
-    riskKeyword: -6,
-  },
-};
 
 const SIGNALS = {
   contrast: [/\bnicht\b[\s\S]{0,80}\bsondern\b/i, /\beigentlich\b[\s\S]{0,60}\baber\b/i, /\bdoch\b/i, /\btrotzdem\b/i],
@@ -157,9 +136,9 @@ function excludeCandidate(text) {
 
 /**
  * @param {string} text
- * @param {typeof DEFAULT_PROFILE} [profile]
+ * @param {typeof FEED_SNIPPET_PROFILE} [profile]
  */
-export function scoreSnippetCandidate(text, profile = DEFAULT_PROFILE) {
+export function scoreSnippetCandidate(text, profile = FEED_SNIPPET_PROFILE) {
   const w = profile.weights;
   let score = 0;
   const flags = [];

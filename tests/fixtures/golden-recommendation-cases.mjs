@@ -4,7 +4,7 @@ export const GOLDEN_RECOMMENDATION_CASES = [
     input: "",
     expect: {
       includes: ["baseline.empty_text"],
-      excludes: ["feed.cta_missing", "feed.thesis_too_late", "risk.overall_high"],
+      excludes: ["feed.cta_missing", "feed.thesis_too_late", "feed.thesis_after_fold", "risk.overall_high"],
       topExact: [],
       emptyState: true,
     },
@@ -112,13 +112,12 @@ export const GOLDEN_RECOMMENDATION_CASES = [
     },
   },
   {
-    id: "gc11_feed_thesis_too_late",
+    id: "gc11_feed_thesis_after_fold",
     input:
       "Ich teile heute drei Beobachtungen aus Projektuebergaben in den letzten Monaten. Erstens fehlen oft klare Rollen, zweitens werden Abhaengigkeiten zu spaet sichtbar und drittens werden Entscheidungen ohne gemeinsame Kriterien getroffen. Dadurch entstehen viele Rueckfragen und der Fokus auf Kundennutzen geht verloren. Viele Teams arbeiten engagiert, aber ohne klares Entscheidungsmodell. Nicht mehr Aktivitaet, sondern ein klares Entscheidungsmodell reduziert Unsicherheit.",
     options: { analyzeOptions: { kind: "feed", localeHint: "de" } },
     expect: {
-      includes: ["feed.thesis_too_late"],
-      topIncludes: ["feed.thesis_too_late"],
+      includes: ["feed.thesis_after_fold"],
       excludes: ["baseline.empty_text", "feed.kind_uncertain"],
     },
   },
@@ -128,8 +127,8 @@ export const GOLDEN_RECOMMENDATION_CASES = [
       "In mehreren Teams laufen Uebergaben noch ueber Zuruf und einzelne Chat-Nachrichten. Neue Anforderungen werden parallel in verschiedenen Dokumenten erfasst, Prioritaeten aendern sich kurzfristig und Entscheidungen werden spaeter erneut aufgemacht. Das erzeugt Unsicherheit und kostet Zeit in jeder Iteration. Zudem fehlen haeufig klare Kriterien, wann etwas wirklich entschieden ist und wer final verantwortlich zeichnet. Viele Meetings erzeugen Aktivitaet, aber keine nachhaltige Klarheit. Nicht mehr Abstimmung, sondern klare Verantwortung beschleunigt Umsetzung im Team.",
     options: { analyzeOptions: { kind: "feed", localeHint: "de" } },
     expect: {
-      includes: ["feed.cta_missing", "feed.thesis_too_late"],
-      topIncludes: ["feed.cta_missing", "feed.thesis_too_late"],
+      includes: ["feed.cta_missing", "feed.thesis_after_fold"],
+      topIncludes: ["feed.cta_missing"],
       excludes: ["feed.kind_uncertain"],
     },
   },
@@ -247,7 +246,7 @@ export const GOLDEN_RECOMMENDATION_CASES = [
     input:
       "Clear ownership beats constant alignment. Teams move faster when decision rules are explicit.",
     expect: {
-      excludes: ["feed.thesis_too_late", "feed.cta_missing"],
+      excludes: ["feed.thesis_too_late", "feed.thesis_after_fold", "feed.cta_missing"],
     },
   },
   {
@@ -265,7 +264,7 @@ export const GOLDEN_RECOMMENDATION_CASES = [
       "Die Kernthese vorweg: Klare Entscheidungsregeln reduzieren Reibung. Letzte Woche hatten wir trotzdem drei Schleifen im Projekt. Im Rueckblick lag es nicht an Motivation, sondern an unklaren Verantwortlichkeiten zwischen Produkt und Operations.",
     options: { analyzeOptions: { kind: "feed", localeHint: "de" } },
     expect: {
-      excludes: ["feed.thesis_too_late"],
+      excludes: ["feed.thesis_too_late", "feed.thesis_after_fold"],
     },
   },
   {
@@ -363,7 +362,7 @@ export const GOLDEN_RECOMMENDATION_CASES = [
       "Der Kernpunkt zuerst: Klare Verantwortung beschleunigt Umsetzung. Letzte Woche haben wir trotzdem zwei Schleifen gebraucht, bis ein Team die Entscheidung final getroffen hat. Die Geschichte dient hier als Kontext, nicht als Ersatz fuer die Aussage.",
     options: { analyzeOptions: { kind: "feed", localeHint: "de" } },
     expect: {
-      excludes: ["feed.thesis_too_late"],
+      excludes: ["feed.thesis_too_late", "feed.thesis_after_fold"],
     },
   },
   {
@@ -444,6 +443,166 @@ export const GOLDEN_RECOMMENDATION_CASES = [
     },
     expect: {
       excludes: ["article.closing_takeaway_missing"],
+    },
+  },
+  {
+    id: "gc43_article_meta_intro_needs_claim_summary",
+    input:
+      "Warum Entscheidungsmodelle in Transformationsprojekten oft zu spät greifen\n\nKurz vorweg: Dieser Text ist etwas länger geworden und fasst mehrere Beobachtungen aus unterschiedlichen Programmen zusammen, weil die Muster in Banken, Versicherungen und Plattformorganisationen überraschend ähnlich sind.\n\nIn vielen Programmen werden Prioritäten mehrfach geöffnet, weil die Entscheidungslogik nicht explizit genug ist und einzelne Bereiche mit jeweils plausiblen Kriterien arbeiten, die lokal funktionieren, aber übergreifend nicht sauber aufeinander einzahlen.\n\nDadurch entstehen wiederholte Abstimmungen zwischen Produkt, IT, Compliance und Vertrieb, in denen Entscheidungen formal bestätigt werden, obwohl wesentliche Zielkonflikte bereits bekannt sind und erst spät transparent gemacht werden.\n\nWenn Kriterien und Rollen früh geklärt werden, sinken Rückfragen deutlich und Teams liefern stabiler, aber genau diese Verdichtung auf den zentralen Hebel bleibt im Alltag oft implizit und wird erst am Ende einzelner Projektphasen klar benannt.",
+    options: {
+      selectedPacks: ["article"],
+      analyzeOptions: { kind: "article", localeHint: "de" },
+    },
+    expect: {
+      includes: ["article.core_claim_needs_summary"],
+      excludes: ["article.too_many_threads"],
+    },
+  },
+  {
+    id: "gc44_article_rhetorical_opening_no_thread_warning",
+    input:
+      "Warum manche Strategien auf dem Papier klar wirken und in der Umsetzung stocken\n\nKennst du das auch? Warum dauern Entscheidungen trotz vieler Meetings so lange?\n\nDer Kernpunkt: Nicht mehr Abstimmung, sondern klare Entscheidungskriterien reduzieren Reibung und schaffen Verbindlichkeit.\n\nMit dieser Klärung werden Übergaben einfacher und Prioritäten bleiben stabil.",
+    options: {
+      selectedPacks: ["article"],
+      analyzeOptions: { kind: "article", localeHint: "de" },
+    },
+    expect: {
+      excludes: ["article.too_many_threads", "article.core_claim_needs_summary"],
+    },
+  },
+  {
+    id: "gc45_article_compact_but_clear_no_article_pressure",
+    input:
+      "Leitthese: Klare Entscheidungsregeln reduzieren Reibung.\n\nOhne diese Regeln entstehen Schleifen in Priorisierung und Übergaben.\n\nFazit: Erst Entscheidungslogik klären, dann skalieren.",
+    options: {
+      selectedPacks: ["article"],
+      analyzeOptions: { kind: "article", localeHint: "de" },
+    },
+    expect: {
+      excludes: [
+        "article.thesis_late",
+        "article.too_many_threads",
+        "article.core_claim_needs_summary",
+        "article.closing_takeaway_missing",
+      ],
+    },
+  },
+  {
+    id: "gc46_article_multi_thread_with_late_thesis",
+    input:
+      "In großen Transformationsprogrammen werden parallel Governance, Kostenmodelle und Partnersteuerung diskutiert. Gleichzeitig laufen operative Releases weiter. Regulatorische Vorgaben werden in bestehende Prozesse eingebaut.\n\nDanach verschieben sich Prioritäten erneut. Strategie und Betrieb entscheiden zeitversetzt. Teilprojekte entwickeln eigene Narrative. Jede Sicht ist für sich plausibel.\n\nAm Ende entsteht viel Aktivität. Die Linien bleiben jedoch nebeneinander stehen. Für Leser ist schwer erkennbar, welche Richtung wirklich führt.\n\nDie Leitthese wird erst hier klar: Nicht mehr Aktivität, sondern ein explizites Entscheidungsmodell reduziert Reibung zwischen Strategie und Umsetzung.",
+    options: {
+      selectedPacks: ["article"],
+      analyzeOptions: { kind: "article", localeHint: "de" },
+    },
+    expect: {
+      includes: ["article.thesis_late"],
+      excludes: ["article.too_many_threads"],
+    },
+  },
+  {
+    id: "gc47_article_has_clear_takeaway_anti_fp",
+    input:
+      "Warum Positionierung bei neuen Zahlungssystemen wichtiger ist als reine Technik\n\nWenn Differenzierung nicht früh benannt wird, verteilen sich Entscheidungen auf zu viele Gremien und verlieren Tempo.\n\nTeams wirken aktiv, aber ohne gemeinsamen Fokus.\n\nTakeaway: Erst den klaren Kundennutzen formulieren, dann den Rollout skalieren.",
+    options: {
+      selectedPacks: ["article"],
+      analyzeOptions: { kind: "article", localeHint: "de" },
+    },
+    expect: {
+      excludes: ["article.closing_takeaway_missing"],
+    },
+  },
+  {
+    id: "gc48_baseline_wall_of_text_triggers",
+    input:
+      "Viele Teams arbeiten engagiert und trotzdem bleibt die Wirkung in wichtigen Übergaben aus. Entscheidungen werden mehrfach geöffnet, weil Kriterien nur implizit vorliegen. Dadurch wächst der Abstimmungsaufwand von Woche zu Woche, obwohl alle Beteiligten das gleiche Ziel verfolgen. Gleichzeitig werden Verantwortlichkeiten situationsabhängig neu verhandelt und nicht verbindlich dokumentiert. Am Ende steigt die Aktivität, aber die Umsetzung verliert Fokus und Tempo.\n\nWenn Entscheidungslogik früh geklärt wird, sinken Schleifen deutlich und Teams liefern stabiler.",
+    options: { selectedPacks: ["baseline"], analyzeOptions: { localeHint: "de" } },
+    expect: {
+      includes: ["baseline.wall_of_text"],
+      topIncludes: ["baseline.wall_of_text"],
+    },
+  },
+  {
+    id: "gc49_baseline_wall_of_text_anti_fp_short_post",
+    input:
+      "Viele Teams kämpfen mit Priorisierung. Rollen bleiben oft unklar. Das erzeugt Schleifen in Übergaben.",
+    options: { selectedPacks: ["baseline"], analyzeOptions: { localeHint: "de" } },
+    expect: {
+      excludes: ["baseline.wall_of_text"],
+    },
+  },
+  {
+    id: "gc50_baseline_wall_of_text_anti_fp_structured_long_post",
+    input:
+      "Klare These: Entscheidungslogik reduziert Reibung.\n\nAbschnitt eins beschreibt das Problem in Teams knapp und konkret.\n\nAbschnitt zwei zeigt, wie Kriterien Verantwortung und Tempo verbessern.\n\nAbschnitt drei fasst den Hebel zusammen und gibt einen nächsten Schritt.\n\nSo bleibt der Text lang genug für Tiefe, aber visuell gut lesbar.",
+    options: { selectedPacks: ["baseline"], analyzeOptions: { localeHint: "de" } },
+    expect: {
+      excludes: ["baseline.wall_of_text"],
+    },
+  },
+  {
+    id: "gc51_feed_thesis_after_fold",
+    input:
+      "Ich habe lange über LinkedIn-Texte nachgedacht und in vielen Entwürfen gesehen, wie schnell die Aufmerksamkeit im Feed abfällt. Viele Posts wirken ordentlich, aber bleiben wirkungslos, weil sie zuerst Kontext schichten, Beispiele aneinanderreihen und den eigentlichen Hebel erst ganz am Ende benennen. Sie erklären viel, sortieren sauber, liefern Beobachtungen aus Projekten und wollen verständlich sein, verlieren dabei aber den früh sichtbaren Kern. Nicht die Menge an Kontext überzeugt im Feed, sondern eine früh sichtbare Kernthese.",
+    options: { analyzeOptions: { kind: "feed", localeHint: "de" } },
+    expect: {
+      includes: ["feed.thesis_after_fold"],
+      topIncludes: ["feed.thesis_after_fold"],
+    },
+  },
+  {
+    id: "gc52_feed_thesis_before_fold_anti_fp",
+    input:
+      "Der stärkste Satz steht oft zu spät. Ich habe lange über LinkedIn-Texte nachgedacht. Viele Posts erklären viel, aber verlieren im Feed früh Aufmerksamkeit.",
+    options: { analyzeOptions: { kind: "feed", localeHint: "de" } },
+    expect: {
+      excludes: ["feed.thesis_after_fold"],
+    },
+  },
+  {
+    id: "gc53_feed_implicit_cta_no_missing",
+    input:
+      "Viele Teams verlieren Wirkung im Feed, obwohl der Inhalt substanziell ist und konkrete Erfahrungen enthält. Oft fehlt kein Wissen, sondern ein klarer nächster Schritt für Leserinnen und Leser. Wir sehen das regelmäßig in Texten, die sauber argumentieren, aber offen enden. Schreib mir eine DM, wenn du dafür eine kompakte Checkliste willst.",
+    options: { analyzeOptions: { kind: "feed", localeHint: "de" } },
+    expect: {
+      excludes: ["feed.cta_missing"],
+    },
+  },
+  {
+    id: "gc54_feed_newsletter_mention_is_not_cta",
+    input:
+      "Viele Teams strukturieren ihre Beiträge sauber und liefern nachvollziehbare Beispiele aus dem Alltag. Trotzdem fehlt am Ende oft eine konkrete Anschlussbewegung für die Leserschaft. In Reviews sehen wir dann lange Texte, die informativ wirken, aber ohne klaren nächsten Schritt auslaufen und dadurch wenig Reaktion erzeugen. Der Newsletter war in unserem internen Workshop nur ein Beispiel für Kanalvergleich, nicht die eigentliche Handlungsempfehlung. Zusätzlich wurde gezeigt, wie Formulierungen ohne Frage oder klare Aktion die Interaktion sichtbar senken. Der Text endet bewusst ohne Frage oder konkrete Aufforderung.",
+    options: { analyzeOptions: { kind: "feed", localeHint: "de" } },
+    expect: {
+      includes: ["feed.cta_missing"],
+    },
+  },
+  {
+    id: "gc55_baseline_buzzword_dense_triggers",
+    input:
+      "Unsere AI-First Transformation schafft skalierbare Synergien und ein holistisches End-to-End Operating Model für nachhaltige Value Creation im gesamten Unternehmen. Durch datengetriebene Innovation optimieren wir den Full-Stack-Prozess, heben Effizienzpotenziale und erzeugen maximalen Impact für alle Stakeholder im Markt. Dieses Paradigm ist als Blueprint für Disruption gedacht, damit Teams mit mehr Leverage schneller skalieren und gleichzeitig ein neues Mindset in der Organisation verankern. Zusätzlich entsteht Empowerment durch ein holistisch gedachtes Framework, das Synergie, Impact und Deep Dive als wiederkehrende Leitbegriffe für die Transformation setzt.",
+    options: { selectedPacks: ["baseline"], analyzeOptions: { localeHint: "de" } },
+    expect: {
+      includes: ["baseline.buzzword_dense"],
+      topIncludes: ["baseline.buzzword_dense"],
+    },
+  },
+  {
+    id: "gc56_baseline_buzzword_dense_anti_fp_critical_framing",
+    input:
+      "AI-first ist oft nur ein Etikett. Entscheidend ist, ob der Prozess danach weniger Medienbrüche hat und Entscheidungen schneller werden.",
+    options: { selectedPacks: ["baseline"], analyzeOptions: { localeHint: "de" } },
+    expect: {
+      excludes: ["baseline.buzzword_dense"],
+    },
+  },
+  {
+    id: "gc57_feed_reflection_cta_no_missing",
+    input:
+      "Viele Posts verlieren Wirkung, weil die zentrale Aussage zu spät sichtbar wird. Der Text kann fachlich richtig sein und trotzdem im Feed untergehen. Prüf beim nächsten Post, ob deine These vor dem Fold sichtbar ist.",
+    options: { analyzeOptions: { kind: "feed", localeHint: "de" } },
+    expect: {
+      excludes: ["feed.cta_missing"],
     },
   },
 ];

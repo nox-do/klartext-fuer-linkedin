@@ -223,3 +223,25 @@ test("Prioritizer: Gegenrichtungs-Konflikt blockt Kandidat auch ohne eigenes con
   assert.ok(top.some((r) => r.id === "g3"));
   assert.ok(!top.some((r) => r.id === "g2"));
 });
+
+test("thesis_after_fold: Evidence-Segment liegt hinter Fold", () => {
+  const out = composeRecommendationsFromRaw(
+    "Ich habe lange über LinkedIn-Texte nachgedacht und in vielen Entwürfen gesehen, wie schnell die Aufmerksamkeit im Feed abfällt. Viele Posts wirken ordentlich, aber bleiben wirkungslos, weil sie zuerst Kontext schichten, Beispiele aneinanderreihen und den eigentlichen Hebel erst ganz am Ende benennen. Sie erklären viel, sortieren sauber, liefern Beobachtungen aus Projekten und wollen verständlich sein, verlieren dabei aber den früh sichtbaren Kern. Nicht die Menge an Kontext überzeugt im Feed, sondern eine früh sichtbare Kernthese.",
+    { analyzeOptions: { kind: "feed", localeHint: "de" } },
+  );
+
+  const rec = out.details.find((r) => r.id === "feed.thesis_after_fold");
+  assert.ok(rec);
+  assert.ok((rec.evidence?.[0]?.charStart ?? -1) > 200);
+});
+
+test("Prioritizer: thesis_after_fold verdrängt thesis_too_late", () => {
+  const out = composeRecommendationsFromRaw(
+    "Ich habe lange über LinkedIn-Texte nachgedacht und in vielen Entwürfen gesehen, wie schnell die Aufmerksamkeit im Feed abfällt. Viele Posts wirken ordentlich, aber bleiben wirkungslos, weil sie zuerst Kontext schichten, Beispiele aneinanderreihen und den eigentlichen Hebel erst ganz am Ende benennen. Sie erklären viel, sortieren sauber, liefern Beobachtungen aus Projekten und wollen verständlich sein, verlieren dabei aber den früh sichtbaren Kern. Nicht die Menge an Kontext überzeugt im Feed, sondern eine früh sichtbare Kernthese.",
+    { analyzeOptions: { kind: "feed", localeHint: "de" } },
+  );
+
+  const topIds = out.top.map((r) => r.id);
+  assert.ok(topIds.includes("feed.thesis_after_fold"));
+  assert.ok(!topIds.includes("feed.thesis_too_late"));
+});
