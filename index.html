@@ -7,36 +7,141 @@
     <title>LinkedIn-Texthelfer</title>
     <style>
       :root {
-        font-family: system-ui, sans-serif;
-        line-height: 1.5;
-        color: #1a1a1a;
-        background: #fafafa;
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        line-height: 1.45;
+        color: #101828;
+        background: #f8fafc;
+      }
+      * {
+        box-sizing: border-box;
       }
       body {
         margin: 0;
-        min-height: 100vh;
-        display: grid;
-        place-items: center;
-        padding: 1.5rem;
+        padding: 1.25rem;
       }
       main {
-        max-width: 36rem;
-        text-align: center;
+        max-width: 980px;
+        margin: 0 auto;
+        display: grid;
+        gap: 1rem;
+      }
+      .card {
+        background: #fff;
+        border: 1px solid #e4e7ec;
+        border-radius: 12px;
+        padding: 1rem;
       }
       h1 {
-        font-size: 1.25rem;
-        font-weight: 600;
+        margin: 0 0 0.25rem;
+        font-size: 1.3rem;
       }
-      p {
-        color: #444;
-        margin: 0.75rem 0 0;
+      .muted {
+        color: #475467;
+        margin: 0;
+      }
+      textarea {
+        width: 100%;
+        min-height: 180px;
+        resize: vertical;
+        border: 1px solid #d0d5dd;
+        border-radius: 10px;
+        padding: 0.75rem;
+        font: inherit;
+        line-height: 1.4;
+      }
+      .toolbar {
+        margin-top: 0.6rem;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      button {
+        border: 1px solid #d0d5dd;
+        background: #fff;
+        border-radius: 8px;
+        padding: 0.45rem 0.7rem;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #f2f4f7;
+      }
+      .top3 {
+        display: grid;
+        gap: 0.8rem;
+      }
+      .item {
+        border: 1px solid #eaecf0;
+        border-radius: 10px;
+        padding: 0.7rem;
+      }
+      .item h3 {
+        margin: 0 0 0.25rem;
+        font-size: 1rem;
+      }
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 0.1rem 0.5rem;
+        font-size: 0.78rem;
+        border: 1px solid #d0d5dd;
+        color: #344054;
+      }
+      pre {
+        white-space: pre-wrap;
+        word-break: break-word;
+        margin: 0;
+        font-size: 0.82rem;
+      }
+      .preview {
+        border-left: 3px solid #98a2b3;
+        padding-left: 0.75rem;
       }
     </style>
   </head>
   <body>
     <main>
-      <h1>LinkedIn-Texthelfer</h1>
-      <p id="status">Grundstock — neue Architektur folgt.</p>
+      <section class="card">
+        <h1>LinkedIn-Texthelfer</h1>
+        <p class="muted">
+          Lokale Analyse ohne Server. Fokus: bessere Texte, kein Verschlimmbessern.
+        </p>
+      </section>
+
+      <section class="card">
+        <label for="inputText"><strong>Text</strong></label>
+        <textarea id="inputText" placeholder="Füge hier deinen LinkedIn-Entwurf ein ..."></textarea>
+        <div class="toolbar">
+          <button id="copyInputBtn" type="button">Input kopieren</button>
+          <button id="copyTop3Btn" type="button">Top-3 kopieren</button>
+          <button id="clearBtn" type="button">Leeren</button>
+          <span id="status" class="muted"></span>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Die 3 größten Hebel</h2>
+        <div id="top3" class="top3"></div>
+      </section>
+
+      <section class="card">
+        <h2>Feed-Vorschau</h2>
+        <div id="preview" class="preview muted">Noch keine Vorschau.</div>
+      </section>
+
+      <section class="card">
+        <details>
+          <summary><strong>Checkliste / Details</strong></summary>
+          <div id="detailsList" class="top3" style="margin-top:0.7rem;"></div>
+        </details>
+      </section>
+
+      <section class="card">
+        <details>
+          <summary><strong>Debug-Modell</strong></summary>
+          <pre id="debugOut" style="margin-top:0.7rem;"></pre>
+        </details>
+      </section>
     </main>
     <script type="module" src="./app.js"></script>
   </body>

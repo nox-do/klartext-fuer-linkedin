@@ -652,13 +652,13 @@ scripts/
 
 *Hinweis `preview/`:* `feed-snippet-ranker.js` bleibt als Regression/Raw-Fallback; **`feed-snippet.js`** ist mit AP6 aktiv für segment-/signalbasiertes Fold-Snippet aus dem PostModel.
 
-*Hinweis `utils/`:* `regex.js`, `text-metrics.js` (AP2) und `signal-patterns.js` (AP3) sind umgesetzt; `escape-html.js` folgt mit UI/AP9.
+*Hinweis `utils/`:* `regex.js`, `text-metrics.js` (AP2) und `signal-patterns.js` (AP3) sind umgesetzt; **`escape-html.js`** optional später (härtet `innerHTML` in der UI — aktuell lokales Tool, Engine liefert kontrollierte Strings).
 
 *Hinweis Skripte:* Im Repo existieren derzeit **`verify.mjs`** und **`verify-feed-snippet.mjs`**. `verify-recommendations.mjs` und `dump-analysis.mjs` sind Zielnamen (u. a. AP8/AP10) und können später ergänzt werden.
 
 **Fixtures:** Golden Cases und Beispieltexte ausschließlich unter **`tests/fixtures/`** (kein zweites `fixtures/`-Verzeichnis im Projektroot — vermeidet Dubletten und falsche Importpfade).
 
-**Ist-Stand Dateien (Stand 2026-05-04):** umgesetzt sind u. a. `src/core/normalize-text.js`, `segment-document.js`, `sentence-fallback.js`, **`extract-surface-features.js`**, **`extract-signal-scores.js`**, **`classify-roles.js`**, **`build-post-model.js`**, **`analyze-post.js`**, `src/core/resolve-fold-teaser.js`, `src/domain/types.js`, `src/domain/recommendation-types.js`, `fold-constants.js`, `role-and-structure-constants.js`, **`thresholds.js`**, `segment-stubs.js`, `src/utils/regex.js`, **`signal-patterns.js`**, `text-metrics.js`, `src/preview/feed-snippet-ranker.js`, `src/rules/*.rules.js`, `src/rules/run-rule-packs.js`, `src/recommendations/compose-recommendations.js`, `merge-recommendations.js`, `prioritize-recommendations.js`, `copy.de.js`, `tests/unit/*.test.js`, `tests/fixtures/feed-snippet-cases.mjs`, `scripts/verify.mjs` (Unterbefehle `segmenter`, `fallback`, `feed-snippet`, **`surface`**, **`signals`**, **`roles`**, **`post-model`**, **`rules`**, **`recommendations`**), `scripts/verify-feed-snippet.mjs`, `package.json` (`"type": "module"`). `src/app/`, weitere `preview/`-Module, `ui/` aus der Zielstruktur sind noch **offen**.
+**Ist-Stand Dateien (Stand 2026-05-05):** wie zuvor plus **UI v1:** Root-`index.html`, `app.js` (Import aus `src/recommendations/compose-recommendations.js`, kein Build-Step). `src/app/`, separates `ui/` aus der Zielstruktur bleiben optional.
 
 ---
 
@@ -677,8 +677,9 @@ scripts/
 | **AP6** | **erledigt** | Feed-Snippet 2.0: `src/preview/feed-snippet.js` (segment-/signalbasiert), angebunden über `resolve-fold-teaser.js` in `build-post-model.js`; `FoldModel` mit `snippetSource='ranked_segment'` und Segment-IDs; `verify.mjs feed-snippet-model` + bestehende `verify.mjs feed-snippet` Regression. |
 | **AP7** | **erledigt** | Rule Engine: `recommendation-types.js`, `run-rule-packs.js`, Packs `baseline`/`feed`/`risk` + Skeleton `invite`/`headline`/`article`; bei niedriger `kindConfidence` konservative Feed-Hinweise; `verify.mjs rules`. |
 | **AP8** | **erledigt** | Composer/Prioritizer: `merge-recommendations.js`, `prioritize-recommendations.js`, `compose-recommendations.js`, `copy.de.js`; max. 3 Top-Hebel, Konflikt-/`topicBucket`-Handling, Empty-State bei leerem Text; `verify.mjs recommendations`. |
+| **AP9** | **erledigt** | UI v1: `index.html` + `app.js` — Live-Analyse, Top-3, Feed-Vorschau (`fold`), Details/Debug einklappbar, Copy/Clear; `composeRecommendationsFromRaw`; Smoke `./start.sh`. |
 
-**Nächster empfohlener Schritt:** **AP9 — UI v1** (Top-3, Vorschau, Debug), danach AP10 Golden Cases.
+**Nächster empfohlener Schritt:** **AP10 — Golden Cases** (Fixtures + Gesamt-Runner), danach ggf. ML-Schnittstelle (AP11).
 
 ---
 
@@ -1084,14 +1085,14 @@ Eine einfache lokale UI für die neue Engine.
 
 ### Aufgaben
 
-- Textarea
-- Analyse bei Input
-- Hauptbox „Die 3 größten Hebel“
-- Feed-Vorschau
-- Checkliste/Details einklappbar
-- Debug-Modell optional einklappbar
-- Copy Buttons
-- keine externe Abhängigkeit im Kern
+- [x] Textarea
+- [x] Analyse bei Input
+- [x] Hauptbox „Die 3 größten Hebel“
+- [x] Feed-Vorschau
+- [x] Checkliste/Details einklappbar
+- [x] Debug-Modell optional einklappbar
+- [x] Copy Buttons
+- [x] keine externe Abhängigkeit im Kern (Browser lädt ESM aus `src/`)
 
 ### Akzeptanzkriterien
 
@@ -1313,7 +1314,7 @@ Die 3 größten Hebel
 
 ## 14. Reihenfolge für die Umsetzung
 
-**Erledigt (siehe §10.0):** AP0–AP8.
+**Erledigt (siehe §10.0):** AP0–AP9.
 
 Empfohlene Reihenfolge:
 
@@ -1326,8 +1327,8 @@ Empfohlene Reihenfolge:
 7. ~~AP7 — Rule Engine~~
 8. ~~AP8 — Recommendation Composer~~
 9. ~~AP6 — Feed-Snippet 2.0~~
-10. **AP9 — UI v1** ← *aktuell*
-11. AP10 — Golden Cases
+10. ~~AP9 — UI v1~~
+11. **AP10 — Golden Cases** ← *aktuell*
 12. AP11 — ML-Schnittstelle vorbereiten
 
 Begründung:
