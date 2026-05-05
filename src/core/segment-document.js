@@ -1,6 +1,9 @@
 import { normalizeText, segmenterLocaleForLanguage } from "./normalize-text.js";
+import { classifyRoles } from "./classify-roles.js";
+import { extractSignalScores } from "./extract-signal-scores.js";
+import { extractSurfaceFeatures } from "./extract-surface-features.js";
 import { rangesFallbackSentences } from "./sentence-fallback.js";
-import { emptySegmentSemantics } from "../domain/segment-stubs.js";
+import { countWords } from "../utils/text-metrics.js";
 
 /**
  * Vollständiges NormalizedDocument (AP1, Zieldokument §5.2).
@@ -19,15 +22,30 @@ export function buildNormalizedDocument(raw, options = {}) {
   const outParagraphs = [];
   let sentenceTotal = 0;
 
+  /** @type {number[]} */
+  const sentenceCountsPerParagraph = paragraphs.map((p) =>
+    sentenceRanges(p.text, language).length,
+  );
+  const totalDocSentences = sentenceCountsPerParagraph.reduce((a, b) => a + b, 0);
+  let docSentenceOffset = 0;
+
   for (let pi = 0; pi < paragraphs.length; pi++) {
     const { charStart, charEnd, text } = paragraphs[pi];
+    const ranges = sentenceRanges(text, language);
     const sentenceSegments = buildSentenceSegments(
       text,
+      ranges,
       charStart,
       pi,
       language,
-      includePairs
+      includePairs,
+      {
+        paragraphSentenceCount: sentenceCountsPerParagraph[pi],
+        docSentenceOffsetStart: docSentenceOffset,
+        docSentenceTotal: totalDocSentences,
+      }
     );
+    docSentenceOffset += sentenceCountsPerParagraph[pi];
     sentenceTotal += sentenceSegments.filter((s) => s.type === "sentence").length;
     outParagraphs.push({
       id: `p${pi}`,
@@ -89,21 +107,31 @@ function pushParagraphBlock(out, norm, blockStart, blockEnd) {
 }
 
 /**
+ * @typedef {Object} RolePlacement
+ * @property {number} paragraphSentenceCount
+ * @property {number} docSentenceOffsetStart
+ * @property {number} docSentenceTotal
+ */
+
+/**
  * @param {string} paragraphText
+ * @param {{ localStart: number, localEnd: number }[]} ranges
  * @param {number} paragraphGlobalStart
  * @param {number} paragraphIndex
  * @param {import('../domain/types.js').DetectedLanguage} language
  * @param {boolean} includePairs
+ * @param {RolePlacement} rp
  * @returns {import('../domain/types.js').Segment[]}
  */
 function buildSentenceSegments(
   paragraphText,
+  ranges,
   paragraphGlobalStart,
   paragraphIndex,
   language,
-  includePairs
+  includePairs,
+  rp
 ) {
-  const ranges = sentenceRanges(paragraphText, language);
   /** @type {import('../domain/types.js').Segment[]} */
   const sentences = [];
   for (let si = 0; si < ranges.length; si++) {
@@ -111,7 +139,16 @@ function buildSentenceSegments(
     const g0 = paragraphGlobalStart + localStart;
     const g1 = paragraphGlobalStart + localEnd;
     const text = paragraphText.slice(localStart, localEnd);
-    const stub = emptySegmentSemantics();
+    const surface = extractSurfaceFeatures(text);
+    const signals = extractSignalScores(surface, text, language);
+    const roles = classifyRoles(surface, signals, {
+      segmentType: "sentence",
+      docSentenceIndex: rp.docSentenceOffsetStart + si,
+      docSentenceCount: rp.docSentenceTotal,
+      paragraphSentenceIndex: si,
+      paragraphSentenceCount: rp.paragraphSentenceCount,
+      text,
+    });
     sentences.push({
       id: `p${paragraphIndex}-s${si}`,
       type: "sentence",
@@ -120,7 +157,9 @@ function buildSentenceSegments(
       sentenceIndex: si,
       charStart: g0,
       charEnd: g1,
-      ...stub,
+      surface,
+      signals,
+      roles,
     });
   }
 
@@ -133,7 +172,16 @@ function buildSentenceSegments(
       const g0 = paragraphGlobalStart + localStart;
       const g1 = paragraphGlobalStart + localEnd;
       const text = paragraphText.slice(localStart, localEnd);
-      const stub = emptySegmentSemantics();
+      const surface = extractSurfaceFeatures(text);
+      const signals = extractSignalScores(surface, text, language);
+      const roles = classifyRoles(surface, signals, {
+        segmentType: "sentence_pair",
+        docSentenceIndex: rp.docSentenceOffsetStart + si,
+        docSentenceCount: rp.docSentenceTotal,
+        paragraphSentenceIndex: si,
+        paragraphSentenceCount: rp.paragraphSentenceCount,
+        text,
+      });
       sentences.push({
         id: `p${paragraphIndex}-sp${si}-${si + 1}`,
         type: "sentence_pair",
@@ -141,7 +189,9 @@ function buildSentenceSegments(
         paragraphIndex: paragraphIndex,
         charStart: g0,
         charEnd: g1,
-        ...stub,
+        surface,
+        signals,
+        roles,
       });
     }
   }
@@ -196,12 +246,4 @@ function rangesFromIntlSegmenter(text, seg) {
     if (t0 < t1) ranges.push({ localStart: t0, localEnd: t1 });
   }
   return ranges.length ? ranges : rangesFallbackSentences(text);
-}
-
-/**
- * @param {string} s
- */
-function countWords(s) {
-  if (!s.trim()) return 0;
-  return s.trim().split(/\s+/).length;
 }

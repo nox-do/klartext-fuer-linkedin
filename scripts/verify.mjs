@@ -34,6 +34,62 @@ if (cmd === "feed-snippet") {
   process.exit(r.status === 0 ? 0 : r.status ?? 1);
 }
 
+if (cmd === "surface") {
+  const r = spawnSync(
+    "node",
+    ["--test", join(root, "tests/unit/extract-surface-features.test.js")],
+    { stdio: "inherit", cwd: root }
+  );
+  process.exit(r.status === 0 ? 0 : r.status ?? 1);
+}
+
+if (cmd === "signals") {
+  const r = spawnSync(
+    "node",
+    ["--test", join(root, "tests/unit/extract-signal-scores.test.js")],
+    { stdio: "inherit", cwd: root }
+  );
+  process.exit(r.status === 0 ? 0 : r.status ?? 1);
+}
+
+if (cmd === "roles") {
+  const r = spawnSync(
+    "node",
+    ["--test", join(root, "tests/unit/classify-roles.test.js")],
+    { stdio: "inherit", cwd: root }
+  );
+  process.exit(r.status === 0 ? 0 : r.status ?? 1);
+}
+
+if (cmd === "post-model") {
+  const r = spawnSync(
+    "node",
+    ["--test", join(root, "tests/unit/analyze-post.test.js")],
+    { stdio: "inherit", cwd: root }
+  );
+  process.exit(r.status === 0 ? 0 : r.status ?? 1);
+}
+
+if (cmd === "rules") {
+  const r = spawnSync(
+    "node",
+    ["--test", join(root, "tests/unit/run-rule-packs.test.js")],
+    { stdio: "inherit", cwd: root }
+  );
+  process.exit(r.status === 0 ? 0 : r.status ?? 1);
+}
+
+if (cmd === "recommendations") {
+  const r = spawnSync(
+    "node",
+    ["--test", join(root, "tests/unit/compose-recommendations.test.js")],
+    { stdio: "inherit", cwd: root }
+  );
+  process.exit(r.status === 0 ? 0 : r.status ?? 1);
+}
+
 console.error(`Unbekannter Befehl: ${cmd || "(leer)"}`);
-console.error("Nutzung: node scripts/verify.mjs segmenter | fallback | feed-snippet");
+console.error(
+  "Nutzung: node scripts/verify.mjs segmenter | fallback | feed-snippet | surface | signals | roles | post-model | rules | recommendations"
+);
 process.exit(1);

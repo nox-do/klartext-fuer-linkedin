@@ -224,6 +224,12 @@ type SurfaceFeatures = {
 };
 ```
 
+**Lesen von `SurfaceFeatures` (Präzisierung):**
+
+- **`hasQuestion`:** „mindestens ein `?` **außerhalb** von **`http:`/`https:`-URL-Spannen**“ (wie `RE_URL` in `regex.js`); reine **Querystrings in Links** zählen **nicht**. Scheme-lose Links (`www.…`) werden nicht gestrippt — seltener; bei Bedarf später erweitern.
+- **`startsWeak`:** **deutschsprachige** Opener-Liste; bei `language !== 'de'` kann das Feld irreführend oder leer wirken, bis lokalisierte Listen ergänzt sind.
+- **`sentence_pair`-Segmente:** alle Felder beziehen sich auf die **kombinierte Textspanne** (zwei Sätze zusammen), nicht auf einen der beiden Sätze einzeln — satzgenaue Evidence nutzt Typ `sentence`.
+
 ### 5.6 SignalScores
 
 Signale sind beobachtbare Oberflächen- oder Mustermerkmale. Sie sind noch keine Empfehlung.
@@ -242,6 +248,16 @@ type SignalScores = {
   buzzword: number;
 };
 ```
+
+**Nacharbeit SignalScores (Review-Backlog, Stand 2026-05-04):** AP3 ist umgesetzt; die Punkte unten sind **festgehalten**, damit spätere Kalibrierung nichts Wesentliches „vergisst“. ~~P0 URL/`cta`~~ ist per `hasQuestionMarkOutsideHttpUrls` erledigt (§5.5).
+
+| Prio | Thema | Kurz |
+|------|--------|------|
+| ~~**P0**~~ | ~~`cta` vs. URL-`?`~~ | **Erledigt:** `hasQuestion` nutzt `hasQuestionMarkOutsideHttpUrls` (`regex.js`); **`cta`** startet nicht mehr durch URL-Query allein. |
+| **P1** | `language` | `extractSignalScores(..., language)` ist Platzhalter; Muster **DE-first**. Bei EN/RU: dokumentierte Einschränkung oder spätere Lokalisierung, sonst driftende Rollen. |
+| **P1** | `sentence_pair` | Alle Surface-/Signal-Felder auf **kombinierte Spanne** (§5.5). Für satzgenaue Evidence **`sentence`** bevorzugen; AP4 typ-sensitiv bleiben. |
+| **P2** | Kalibrierung | Gewichte/Schwellen verteilt in `extract-signal-scores.js` — bei Tunen ggf. Richtung **`thresholds.js`** oder eigene Konstantendatei bündeln. |
+| **P2** | Tests | Ergänzen u. a.: Text mit URL + `?`, **`sentence_pair`** vs. zwei Einzelsätze, **`specificity`** mit/ohne URL/Zahl, Stapelung Risiko-Keywords. |
 
 ### 5.7 RoleScores
 
@@ -279,6 +295,8 @@ So bleiben Regeln konsistent testbar; Signal-Debugging bleibt optional (z. B. 
 type PostModel = {
   id: string;
   kind: PostKind;
+  /** 0–1: Zuverlässigkeit der `kind`-Zuordnung; niedrig bei kurzen/mehrdeutigen Texten ohne Nutzer-Kontext (§5.9). */
+  kindConfidence: number;
   language: string;
   raw: string;
   normalized: string;
@@ -310,6 +328,8 @@ type PostKind =
 
 Ohne eine dieser Varianten werden Feed-spezifische Regeln auf falschen Texttypen feuern — das untergräbt Vertrauen.
 
+**Ist-Implementierung AP5:** Heuristik für `kind` + **`options.kind`** (Variante A). Reihenfolge der Regeln: `article` → **`invite`** (Keyword, kurz) → **`headline`** → **`feed`**, damit typische **Einladungen** nicht fälschlich als Headline landen. Zusätzlich **`kindConfidence`** (0–1): bei **niedriger** Sicherheit (typisch kurze Texte im generischen `feed`-Eimer) sollen **AP7** und UI **format-spezifische** Hinweise **zurückhaltend** oder gar nicht zeigen — Baseline/Risk genügt, um nichts zu „verschlimmbessern“. Bei **`options.kind`** vom Nutzer = 1.
+
 ### 5.10 FoldModel
 
 ```ts
@@ -325,6 +345,8 @@ type FoldModel = {
 ```
 
 **API-Vertrag Fold / Snippet:** In frühen Arbeitspaketen dürfen `bestSnippetText` / `bestSnippetSegmentIds` **stub** sein (z. B. erste Zeile oder erster Absatz bis Fold-Länge). **AP6 (Feed-Snippet 2.0)** ersetzt oder füllt diese Felder deterministisch aus dem PostModel — ohne Rohtext parallel mitzuführen. Optional: explizite Hilfsfunktion `enrichFoldFromSegments(post)` statt implizitem „halbfertigem“ Modell.
+
+**Ist-Stand Nahtstelle:** `src/core/resolve-fold-teaser.js` re-exportiert den Ranker-Stub; `build-post-model.js` importiert nur diese Datei — AP6 kann die Implementierung zentral austauschen.
 
 Die sichtbare Zeichenzahl vor „Mehr“ bleibt **Annäherung** (Client, Schrift); Regeln dürfen nicht pixelgenau vom Fold abhängen.
 
@@ -344,6 +366,8 @@ type StructureModel = {
   topicDrift: 'low' | 'medium' | 'high' | 'unknown';
 };
 ```
+
+**`topicDrift` (Präzisierung):** Der Wert bildet in **AP5** eine **Satzanzahl-/Längen-Heuristik** (viele Sätze → höher), **keine** semantische „Themen-Zerstreuung“. Spätere echte Topic-Modelle könnten ein anderes Feld ergänzen; Regeln sollten dieses Feld nicht als inhaltlichen Drift interpretieren.
 
 ### 5.12 Recommendation
 
@@ -562,11 +586,14 @@ src/
     extract-surface-features.js
     extract-signal-scores.js
     classify-roles.js
+    resolve-fold-teaser.js
     build-post-model.js
     analyze-post.js
 
   domain/
     fold-constants.js
+    role-and-structure-constants.js
+    thresholds.js
     kinds.js
     roles.js
     recommendation-types.js
@@ -601,6 +628,7 @@ src/
   utils/
     escape-html.js
     regex.js
+    signal-patterns.js
     text-metrics.js
 
 tests/
@@ -624,11 +652,13 @@ scripts/
 
 *Hinweis `preview/`:* `feed-snippet-ranker.js` ist umgesetzt; `feed-snippet.js` (dünne Fassade / PostModel-Anbindung) folgt mit AP6/AP9 — im Zielbaum als Platzhalter geführt.
 
+*Hinweis `utils/`:* `regex.js`, `text-metrics.js` (AP2) und `signal-patterns.js` (AP3) sind umgesetzt; `escape-html.js` folgt mit UI/AP9.
+
 *Hinweis Skripte:* Im Repo existieren derzeit **`verify.mjs`** und **`verify-feed-snippet.mjs`**. `verify-recommendations.mjs` und `dump-analysis.mjs` sind Zielnamen (u. a. AP8/AP10) und können später ergänzt werden.
 
 **Fixtures:** Golden Cases und Beispieltexte ausschließlich unter **`tests/fixtures/`** (kein zweites `fixtures/`-Verzeichnis im Projektroot — vermeidet Dubletten und falsche Importpfade).
 
-**Ist-Stand Dateien (Stand 2026-05-04):** umgesetzt sind u. a. `src/core/normalize-text.js`, `segment-document.js`, `sentence-fallback.js`, `src/domain/types.js`, `fold-constants.js`, `segment-stubs.js`, `src/preview/feed-snippet-ranker.js`, `tests/unit/*.test.js`, `tests/fixtures/feed-snippet-cases.mjs`, `scripts/verify.mjs` (Unterbefehle `segmenter`, `fallback`, `feed-snippet`), `scripts/verify-feed-snippet.mjs`, `package.json` (`"type": "module"`). `src/app/`, `rules/`, `recommendations/`, weitere `preview/`-Module, `ui/`, `utils/` sowie die übrigen `core/`-Module aus der Zielstruktur sind noch **offen**.
+**Ist-Stand Dateien (Stand 2026-05-04):** umgesetzt sind u. a. `src/core/normalize-text.js`, `segment-document.js`, `sentence-fallback.js`, **`extract-surface-features.js`**, **`extract-signal-scores.js`**, **`classify-roles.js`**, **`build-post-model.js`**, **`analyze-post.js`**, `src/core/resolve-fold-teaser.js`, `src/domain/types.js`, `src/domain/recommendation-types.js`, `fold-constants.js`, `role-and-structure-constants.js`, **`thresholds.js`**, `segment-stubs.js`, `src/utils/regex.js`, **`signal-patterns.js`**, `text-metrics.js`, `src/preview/feed-snippet-ranker.js`, `src/rules/*.rules.js`, `src/rules/run-rule-packs.js`, `src/recommendations/compose-recommendations.js`, `merge-recommendations.js`, `prioritize-recommendations.js`, `copy.de.js`, `tests/unit/*.test.js`, `tests/fixtures/feed-snippet-cases.mjs`, `scripts/verify.mjs` (Unterbefehle `segmenter`, `fallback`, `feed-snippet`, **`surface`**, **`signals`**, **`roles`**, **`post-model`**, **`rules`**, **`recommendations`**), `scripts/verify-feed-snippet.mjs`, `package.json` (`"type": "module"`). `src/app/`, weitere `preview/`-Module, `ui/` aus der Zielstruktur sind noch **offen**.
 
 ---
 
@@ -640,8 +670,14 @@ scripts/
 |----|--------|------|
 | **AP0** | **erledigt** | Archiv, README, Struktur; **Feed-Snippet-Referenz:** `tests/fixtures/feed-snippet-cases.mjs`, Runner `scripts/verify-feed-snippet.mjs` / `verify.mjs feed-snippet`; **Ranker-Kanon:** `src/preview/feed-snippet-ranker.js`, Fold-Länge `src/domain/fold-constants.js` (`archive/feed-snippet-ranker.js` nur noch Re-Export für alte Pfade). |
 | **AP1** | **erledigt** | `normalizeText`, `buildNormalizedDocument`, Intl + Fallback, Zeichenoffsets, Tests (`verify.mjs segmenter` / `fallback`, `npm test`). |
+| **AP2** | **erledigt** | `extract-surface-features.js`, `src/utils/regex.js` + `text-metrics.js`, `thresholds.js`, Surface je Segment in `buildNormalizedDocument`, `verify.mjs surface`; „lange Sätze“ über `isLongSegmentSurface(surface)` + Schwellen (kein extra §5.5-Feld). |
+| **AP3** | **erledigt** | `extract-signal-scores.js`, `src/utils/signal-patterns.js` (DE-first), Signale 0–1 je Segment, `verify.mjs signals`; optional Debug-Treffer später. Surface `hasQuestion` ohne URL-Query-`?` (§5.5). **Nacharbeit:** §5.6 (P1/P2). |
+| **AP4** | **erledigt** | `classify-roles.js`: `RoleScores` aus Signalen + Positions-Kontext (`docSentenceIndex`/`Count`, Absatzende → **`cta`**); Hook auch Kontrast/Claim-Hint/`hasQuestion`/CAPS; Kontext via Personal + Zeit-/Erzähl-Marker; **`sentence_pair`** leicht gedämpft; `verify.mjs roles`; Einbau in `segment-document.js`. |
+| **AP5** | **erledigt** | `build-post-model.js` / `analyze-post.js`: `PostModel` mit `kind` + **`kindConfidence`**, `StructureModel`, **`FoldModel`**-Stub via **`resolve-fold-teaser.js`**, `role-and-structure-constants.js`, lange Sätze = `thresholds.js`; `verify.mjs post-model`. |
+| **AP7** | **erledigt** | Rule Engine: `recommendation-types.js`, `run-rule-packs.js`, Packs `baseline`/`feed`/`risk` + Skeleton `invite`/`headline`/`article`; bei niedriger `kindConfidence` konservative Feed-Hinweise; `verify.mjs rules`. |
+| **AP8** | **erledigt** | Composer/Prioritizer: `merge-recommendations.js`, `prioritize-recommendations.js`, `compose-recommendations.js`, `copy.de.js`; max. 3 Top-Hebel, Konflikt-/`topicBucket`-Handling, Empty-State bei leerem Text; `verify.mjs recommendations`. |
 
-**Nächster empfohlener Schritt:** **AP2 — Surface Features** (`extract-surface-features.js`, zentrale Regex unter `src/utils/`), danach AP3.
+**Nächster empfohlener Schritt:** **AP6 — Feed-Snippet 2.0** auf Segment-/PostModel-Basis, danach AP9 UI.
 
 ---
 
@@ -728,32 +764,42 @@ node scripts/verify.mjs fallback
 
 Messbare Textmerkmale je Segment extrahieren.
 
+**Hinweis:** `startsWeak` ist **DE-geprägt**; `hasQuestion` ignoriert `?` innerhalb von `http(s):`-URLs (vgl. §5.5). Bei **`sentence_pair`** gelten die Merkmale für die **gesamte Paar-Spanne** — für satzweise Logik `sentence`-Segmente verwenden.
+
 ### Aufgaben
 
-- Länge, Wortzahl, Kommata, Satzzeichen
-- Fragezeichen
-- Zahlen, Prozent, Euro
-- URLs
-- Hashtags
-- Emoji-Ketten
-- All-Caps
-- schwache Satzanfänge
-- lange Sätze
+- [x] Länge, Wortzahl, Kommata, Satzzeichen
+- [x] Fragezeichen
+- [x] Zahlen, Prozent, Euro
+- [x] URLs
+- [x] Hashtags
+- [x] Emoji-Ketten
+- [x] All-Caps
+- [x] schwache Satzanfänge
+- [x] lange Sätze *(Heuristik `isLongSegmentSurface` + `thresholds.js`, nicht als zusätzliches Feld in §5.5)*
 
 ### Akzeptanzkriterien
 
-- Features sind deterministisch
-- Features haben keine UI-Abhängigkeit
-- Regexe sind zentral gepflegt
-- neue Features brechen alte Tests nicht
+- [x] Features sind deterministisch
+- [x] Features haben keine UI-Abhängigkeit
+- [x] Regexe sind zentral gepflegt
+- [x] neue Features brechen alte Tests nicht
 
 ### Unit-Tests
 
 ```text
 "Warum scheitern gute Posts?" → hasQuestion true
+"Hier der Link https://x.com/p?id=1" → hasUrl true, hasQuestion false (nur Query im Link)
 "100 % garantiert" → hasNumber true, risk später möglich
 "https://example.com" → hasUrl true
 "DAS IST WICHTIG" → isAllCaps true
+```
+
+### Testbefehl
+
+```bash
+node scripts/verify.mjs surface
+npm test
 ```
 
 ---
@@ -768,22 +814,24 @@ Aus Features und Mustern fachliche Signale ableiten.
 
 Signale implementieren:
 
-- contrast
-- pain
-- benefit
-- personal
-- specificity
-- cta
-- proof
-- example
-- risk
-- buzzword
+- [x] contrast
+- [x] pain
+- [x] benefit
+- [x] personal
+- [x] specificity
+- [x] cta
+- [x] proof
+- [x] example
+- [x] risk
+- [x] buzzword
 
 ### Akzeptanzkriterien
 
-- Scores liegen zwischen 0 und 1
-- Scores sind erklärbar
-- Signale speichern auslösende Pattern optional für Debug
+- [x] Scores liegen zwischen 0 und 1
+- [x] Scores sind erklärbar *(Muster in `signal-patterns.js`, Logik in `extract-signal-scores.js`)*
+- [ ] Signale speichern auslösende Pattern optional für Debug *(API bei Bedarf nachziehen)*
+
+**Nacharbeit:** die priorisierte Review-Liste (P0–P2, inkl. Testlücken) steht unter **§5.6 — Nacharbeit SignalScores**; bei AP4 und weiteren Iterationen dort nachziehen, nicht nur diese Checkbox.
 
 ### Beispieltests
 
@@ -798,6 +846,13 @@ Signale implementieren:
 → cta > 0.8
 ```
 
+### Testbefehl
+
+```bash
+node scripts/verify.mjs signals
+npm test
+```
+
 ---
 
 ## AP4 — Rollenklassifikation
@@ -808,20 +863,20 @@ Segmente nach LinkedIn-relevanter Funktion bewerten.
 
 ### Aufgaben
 
-- Rollen aus Signal-Scores und Position ableiten
-- Hook nicht nur über Fragezeichen bestimmen
-- These über Kontrast, Claim-Marker und Kürze erkennen
-- CTA am Ende stärker gewichten
-- Kontextsegmente erkennen
-- Filler nur vorsichtig vergeben
+- [x] Rollen aus Signal-Scores und Position ableiten
+- [x] Hook nicht nur über Fragezeichen bestimmen *(Kontrast, erster Satz, Claim-Hint, CAPS; URL-Query allein kein `hasQuestion`; §5.5)*
+- [x] These über Kontrast, Claim-Marker (`nicht`/`scheitert`-Setup erster Satz) und Signale
+- [x] CTA am Ende stärker gewichten *(letzter Satz im Absatz / im Dokument)*
+- [x] Kontextsegmente erkennen *(Personal + Zeit-/Erzähl-Marker im Text)*
+- [x] Filler nur vorsichtig vergeben
 
 ### Akzeptanzkriterien
 
-- jedes Segment hat RoleScores
-- mehrere Rollen pro Segment sind möglich
-- Position beeinflusst Rolle, aber dominiert sie nicht vollständig
-- Rollen sind ohne ML berechenbar
-- **Tests:** Golden Cases prüfen eher **Reihenfolge der stärksten Rollen** oder Schwellenbänder (z. B. „thesis dominiert gegenüber filler“), nicht eine einzelne harte Float-Zahl — vermeidet fragile CI bei kleinen Heuristik-Anpassungen
+- [x] jedes Segment hat RoleScores
+- [x] mehrere Rollen pro Segment sind möglich
+- [x] Position beeinflusst Rolle, aber dominiert sie nicht vollständig
+- [x] Rollen sind ohne ML berechenbar
+- [x] **Tests:** Reihenfolge / Schwellenbänder (`classify-roles.test.js`), keine fragilen Einzel-Float-Gleichheiten
 
 ### Beispieltests
 
@@ -836,6 +891,13 @@ Segmente nach LinkedIn-relevanter Funktion bewerten.
 → cta > 0.8
 ```
 
+### Testbefehl
+
+```bash
+node scripts/verify.mjs roles
+npm test
+```
+
 ---
 
 ## AP5 — PostModel Builder
@@ -846,20 +908,22 @@ Aus Segmenten ein vollständiges Beitragsmodell bauen.
 
 ### Aufgaben
 
-- `analyzePost(raw)` als zentrale API
-- `kind` ableiten
-- `metrics` berechnen
-- `fold` berechnen
-- `structure` berechnen
-- `risks` sammeln
-- Debug-Ausgabe ermöglichen
+- [x] `analyzePost(raw, options?)` als zentrale API (`src/core/analyze-post.js` → `build-post-model.js`)
+- [x] `kind` ableiten *(Heuristik + optional `options.kind`, §5.9)*
+- [x] `metrics` übernehmen (`buildNormalizedDocument`)
+- [x] `fold` berechnen *(Stub: `resolveFeedFoldTeaser` + `bestSnippetSegmentIds`-Heuristik; AP6 verfeinert)*
+- [x] `structure` berechnen *(Aggregation aus Rollen/Signalen je Satz)*
+- [x] `risks` sammeln *(leer, Sensitivität, langer Satz — ohne Regelpakete)*
+- [x] Debug optional (`includeDebug: true` → `post.debug`, u. a. Hinweis zu `topicDrift`)
+- [x] **`kindConfidence`** (§5.9): zurückhaltende format-spezifische Regeln bei Unsicherheit
+- [x] Kalibrierung AP4/AP5 in **`role-and-structure-constants.js`**; Fold-Naht **`resolve-fold-teaser.js`**
 
 ### Akzeptanzkriterien
 
-- eine Funktion erzeugt das komplette Modell
-- keine Regelpakete notwendig, um das Modell zu bauen
-- Modell ist serialisierbar
-- Modell enthält keine HTML-Ausgabe
+- [x] eine Funktion erzeugt das komplette Modell
+- [x] keine Regelpakete notwendig, um das Modell zu bauen
+- [x] Modell ist serialisierbar
+- [x] Modell enthält keine HTML-Ausgabe
 
 ### Integrationstest
 
@@ -868,6 +932,13 @@ const post = analyzePost(sampleFeedPost);
 assert.equal(post.kind, 'feed');
 assert.ok(post.segments.length > 0);
 assert.ok(post.structure.hookStrength >= 0);
+```
+
+### Testbefehl
+
+```bash
+node scripts/verify.mjs post-model
+npm test
 ```
 
 ---
@@ -921,25 +992,37 @@ Regeln vom UI entkoppeln und gegen das PostModel laufen lassen.
 
 ### Aufgaben
 
-- `RuleContext` definieren
-- `RuleResult` definieren
-- `runRulePacks(post, selectedPacks)` implementieren
-- Baseline Pack
-- Feed Pack
-- Risk Pack
-- erste Invite-/Headline-/Article-Regeln als Skeleton
+- [x] `RuleContext` definieren (`src/domain/recommendation-types.js`)
+- [x] `RuleResult` definieren (`src/domain/recommendation-types.js`)
+- [x] `runRulePacks(post, selectedPacks)` implementieren (`src/rules/run-rule-packs.js`)
+- [x] Baseline Pack (`src/rules/baseline.rules.js`)
+- [x] Feed Pack (`src/rules/feed.rules.js`)
+- [x] Risk Pack (`src/rules/risk.rules.js`)
+- [x] erste Invite-/Headline-/Article-Regeln als Skeleton (`src/rules/*.rules.js`)
 
 ### Akzeptanzkriterien
 
-- Regeln geben Recommendation-ähnliche Ergebnisse zurück
-- jede Regel hat ID, Pack-ID, Level und Evidence
-- Regeln werfen bei leerem Text keine Exception
-- Rule Packs sind einzeln testbar
+- [x] Regeln geben Recommendation-ähnliche Ergebnisse zurück
+- [x] jede Regel hat ID, Pack-ID, Level und Evidence
+- [x] Regeln werfen bei leerem Text keine Exception
+- [x] Rule Packs sind einzeln testbar
+
+### Testbefehl
+
+```bash
+node scripts/verify.mjs rules
+npm test
+```
 
 ### Beispielregel
 
 ```ts
-if (post.kind === 'feed' && post.structure.ctaStrength < 0.2 && post.metrics.chars > 400) {
+if (
+  post.kind === 'feed' &&
+  post.kindConfidence >= 0.55 &&
+  post.structure.ctaStrength < 0.2 &&
+  post.metrics.charCount > 400
+) {
   return recommendation('feed.cta_missing', ...);
 }
 ```
@@ -954,19 +1037,20 @@ Aus vielen Regelresultaten wenige gute Nutzerhinweise machen.
 
 ### Aufgaben
 
-- Duplikate zusammenführen
-- Empfehlungen priorisieren
-- Top-3-Hebel erzeugen
-- technische Details separat halten
-- Copy zentralisieren
-- Evidence-Spans anzeigen
+- [x] Duplikate zusammenführen (`merge-recommendations.js`)
+- [x] Empfehlungen priorisieren (`prioritize-recommendations.js`)
+- [x] Top-3-Hebel erzeugen (`compose-recommendations.js`)
+- [x] technische Details separat halten (`top` vs. `details`, `meta`)
+- [x] Copy zentralisieren (`copy.de.js`)
+- [x] Evidence-Spans anzeigen (über RuleResults)
 
 ### Akzeptanzkriterien
 
-- Hauptausgabe zeigt maximal 3 Empfehlungen
-- Risiken können Top-3 verdrängen, wenn schwerwiegend
-- **Konflikte beherrschbar:** keine zwei Top-Einträge aus demselben **`topicBucket`**, sofern deklariert; bei explizitem `conflictsWith` gewinnt die höher priorisierte Regel — dokumentiert in `merge-recommendations` / Prioritizer
-- Empfehlung hat konkrete Aktion
+- [x] Hauptausgabe zeigt maximal 3 Empfehlungen
+- [x] Risiken können Top-3 verdrängen, wenn schwerwiegend
+- [x] **Konflikte beherrschbar:** keine zwei Top-Einträge aus demselben **`topicBucket`**, sofern deklariert; bei explizitem `conflictsWith` gewinnt die höher priorisierte Regel — dokumentiert in `merge-recommendations` / Prioritizer
+- [x] Empfehlung hat konkrete Aktion
+- [x] leerer Text liefert Empty State statt „Top-3 um jeden Preis“
 
 ### Tests
 
@@ -979,6 +1063,13 @@ Wenn Text leer:
 
 Wenn URL vorhanden:
 → Risiko/Hinweis Link im Hauptpost erscheint.
+```
+
+### Testbefehl
+
+```bash
+node scripts/verify.mjs recommendations
+npm test
 ```
 
 ---
@@ -1220,19 +1311,19 @@ Die 3 größten Hebel
 
 ## 14. Reihenfolge für die Umsetzung
 
-**Erledigt (siehe §10.0):** AP0 und AP1.
+**Erledigt (siehe §10.0):** AP0–AP5, AP7, AP8.
 
 Empfohlene Reihenfolge:
 
 1. ~~AP0 — Archivierung und Neustart~~
 2. ~~AP1 — Normalizer und Segmenter~~
-3. **AP2 — Surface Features** ← *aktuell*
-4. AP3 — Signal Scores
-5. AP4 — Rollenklassifikation
-6. AP5 — PostModel Builder
-7. AP7 — Rule Engine
-8. AP8 — Recommendation Composer
-9. AP6 — Feed-Snippet 2.0
+3. ~~AP2 — Surface Features~~
+4. ~~AP3 — Signal Scores~~
+5. ~~AP4 — Rollenklassifikation~~
+6. ~~AP5 — PostModel Builder~~
+7. ~~AP7 — Rule Engine~~
+8. ~~AP8 — Recommendation Composer~~
+9. **AP6 — Feed-Snippet 2.0** ← *aktuell*
 10. AP9 — UI v1
 11. AP10 — Golden Cases
 12. AP11 — ML-Schnittstelle vorbereiten

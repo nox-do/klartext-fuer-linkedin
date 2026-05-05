@@ -25,6 +25,11 @@ test("Erster Satz. Zweiter Satz. → 1 Absatz, 2 Sätze", () => {
   const onlySentences = doc.paragraphs[0].sentences.filter((s) => s.type === "sentence");
   assert.equal(onlySentences.length, 2);
   assertEvidenceInNormalized(doc);
+  const s0 = onlySentences[0];
+  assert.equal(s0.surface.wordCount, 2);
+  assert.equal(s0.surface.hasQuestion, false);
+  assert.ok(s0.surface.length > 0);
+  assert.equal(typeof s0.signals.contrast, "number");
 });
 
 test("Hook\\n\\nAbsatz zwei. → 2 Absätze, charStart/charEnd konsistent", () => {
