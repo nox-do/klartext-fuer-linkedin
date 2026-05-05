@@ -1,4 +1,4 @@
-import { rec } from "./_helpers.js";
+import { rec } from "./helpers.js";
 
 export const HEADLINE_PACK_ID = "headline";
 

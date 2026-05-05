@@ -8,7 +8,7 @@ import {
   LONG_SENTENCE_WORDS,
   WALL_OF_TEXT_MIN_POST_CHARS,
 } from "../domain/thresholds.js";
-import { evidenceFromSegment, rec } from "./_helpers.js";
+import { evidenceFromSegment, rec } from "./helpers.js";
 
 export const BASELINE_PACK_ID = "baseline";
 

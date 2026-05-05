@@ -1,4 +1,4 @@
-import { evidenceFromSegment, rec } from "./_helpers.js";
+import { evidenceFromSegment, rec } from "./helpers.js";
 
 export const FEED_PACK_ID = "feed";
 
