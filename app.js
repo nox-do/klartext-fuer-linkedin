@@ -1,4 +1,4 @@
-import { composeRecommendationsFromRaw } from "./src/recommendations/compose-recommendations.js?v=20260505-1";
+import { composeRecommendationsFromRaw } from "./src/recommendations/compose-recommendations.js?v=20260505-3";
 
 const inputEl = document.getElementById("inputText");
 const statusEl = document.getElementById("status");
@@ -9,7 +9,14 @@ const debugEl = document.getElementById("debugOut");
 const copyInputBtn = document.getElementById("copyInputBtn");
 const copyTop3Btn = document.getElementById("copyTop3Btn");
 const copyPreviewBtn = document.getElementById("copyPreviewBtn");
+const copyDebugBtn = document.getElementById("copyDebugBtn");
 const clearBtn = document.getElementById("clearBtn");
+const LEVEL_LABELS = {
+  info: "Info",
+  hint: "Hinweis",
+  warn: "Warnung",
+  risk: "Risiko",
+};
 
 /**
  * @param {string} text
@@ -45,9 +52,10 @@ function renderTop3(result) {
     const node = document.createElement("article");
     node.className = "item";
     const action = r.action ? `<p><strong>Aktion:</strong> ${r.action}</p>` : "";
+    const levelLabel = LEVEL_LABELS[r.level] ?? r.level;
     node.innerHTML = `
       <h3>${r.title}</h3>
-      <p><span class="pill">${r.level}</span> <span class="pill">prio ${r.priority}</span></p>
+      <p><span class="pill">${levelLabel}</span> <span class="pill">prio ${r.priority}</span></p>
       <p>${r.message}</p>
       ${action}
     `;
@@ -89,10 +97,13 @@ function renderDetails(result) {
   for (const r of result.details) {
     const node = document.createElement("article");
     node.className = "item";
+    const action = r.action ? `<p><strong>Aktion:</strong> ${r.action}</p>` : "";
+    const levelLabel = LEVEL_LABELS[r.level] ?? r.level;
     node.innerHTML = `
-      <h3>${r.id}</h3>
-      <p><span class="pill">${r.packId}</span> <span class="pill">${r.level}</span></p>
-      <p>${r.title} — ${r.message}</p>
+      <h3>${r.title}</h3>
+      <p><span class="pill">${levelLabel}</span></p>
+      <p>${r.message}</p>
+      ${action}
     `;
     detailsEl.appendChild(node);
   }
@@ -103,6 +114,14 @@ function renderDetails(result) {
  */
 function renderDebug(result) {
   if (!debugEl) return;
+  const selectionTrace = result.selectionTrace ?? null;
+  const notPicked = (selectionTrace?.decisions ?? []).filter((d) => !d.picked);
+  const blockedSummary = notPicked.slice(0, 8).map((d) => ({
+    id: d.id,
+    reason: d.reason,
+    score: d.score,
+    bucket: d.bucket,
+  }));
   debugEl.textContent = JSON.stringify(
     {
       meta: result.meta,
@@ -110,6 +129,12 @@ function renderDebug(result) {
       kindConfidence: result.post.kindConfidence,
       fold: result.post.fold,
       structure: result.post.structure,
+      selectionSummary: {
+        topIds: result.top.map((r) => r.id),
+        blockedCount: notPicked.length,
+        blockedSample: blockedSummary,
+      },
+      selectionTrace,
     },
     null,
     2,
@@ -224,6 +249,12 @@ if (copyPreviewBtn) {
   copyPreviewBtn.addEventListener("click", () => {
     if (!lastResult) return;
     copyText(previewAsText(lastResult));
+  });
+}
+
+if (copyDebugBtn) {
+  copyDebugBtn.addEventListener("click", () => {
+    copyText(debugEl?.textContent ?? "");
   });
 }
 

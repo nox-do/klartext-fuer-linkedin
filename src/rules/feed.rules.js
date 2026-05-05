@@ -40,7 +40,7 @@ export function runFeedRules(ctx) {
         ruleId: "cta_missing",
         level: "hint",
         priority: 62,
-        title: "Abschluss ohne Dialogimpuls",
+        title: "Abschluss ohne Dialogimpuls (CTA)",
         message: "Bei längeren Feed-Posts hilft oft eine klare Anschlussbewegung.",
         action:
           "Ergänze eine klare Anschlussbewegung: Frage, Kommentarimpuls, Ressource oder nächste Handlung.",

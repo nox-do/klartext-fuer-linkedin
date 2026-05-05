@@ -1,6 +1,6 @@
 import { analyzePost } from "../core/analyze-post.js";
 import { mergeRecommendations } from "./merge-recommendations.js";
-import { prioritizeRecommendations } from "./prioritize-recommendations.js";
+import { explainPrioritization } from "./prioritize-recommendations.js?v=20260505-2";
 import { runRulePacks, DEFAULT_RULE_PACKS } from "../rules/run-rule-packs.js";
 
 /**
@@ -10,11 +10,13 @@ import { runRulePacks, DEFAULT_RULE_PACKS } from "../rules/run-rule-packs.js";
 export function composeRecommendations(post, ruleResults) {
   const merged = mergeRecommendations(ruleResults);
   const noInput = !post.normalized.trim();
-  const top = noInput ? [] : prioritizeRecommendations(merged, { maxItems: 3 });
+  const trace = noInput ? null : explainPrioritization(merged, { maxItems: 3 });
+  const top = noInput ? [] : trace.top;
   const emptyState = noInput || top.length === 0;
   return {
     top,
     details: merged,
+    selectionTrace: trace?.trace ?? null,
     emptyState,
     meta: {
       totalRules: ruleResults.length,
