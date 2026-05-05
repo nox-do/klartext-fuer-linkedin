@@ -17,6 +17,7 @@ Kanone für Details: **`linkedin_texthelfer_architektur_zielbild.md` §5.6 — N
 
 ## Änderungen
 
+- **2026-05-04:** **AP6** Feed-Snippet 2.0: `src/preview/feed-snippet.js` (segment-/signalbasiert), Integration über `resolve-fold-teaser.js` in `build-post-model.js`, `POST_MODEL_VERSION` 0.1.2, Tests `feed-snippet-postmodel.test.js`, Verify `feed-snippet-model`; Zielbild AP6/§10.0/§14 + README.
 - **2026-05-04:** **AP8** Composer/Prioritizer: `src/recommendations/{compose,merge,prioritize,copy.de}.js`, `topicBucket`/`conflictsWith` in RuleResults, Empty-State bei leerem Text, `verify.mjs recommendations`, `tests/unit/compose-recommendations.test.js`; Zielbild AP8/§10.0/§14 + README.
 - **2026-05-04:** **AP8 Guardrails (Review-Nachzug):** Priorizer-Auffüllrunde mit symmetrischem `conflictsWith` + Bucket-Prüfung (lieber `<3` als widersprüchlich), zusätzliche Regressionstests für Konflikte/Bucket-Policy.
 - **2026-05-04:** **AP7** Rule Engine: `src/domain/recommendation-types.js`, `src/rules/run-rule-packs.js`, Packs `baseline/feed/risk` + Skeleton `invite/headline/article`, `verify.mjs rules`, `tests/unit/run-rule-packs.test.js`; Zielbild AP7/§10.0/§14 + README.

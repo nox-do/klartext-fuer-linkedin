@@ -20,6 +20,7 @@ Die vorherige monolithische Variante (Module, Fixtures, Snippet-Tests, Dump) lie
 node scripts/verify.mjs segmenter
 node scripts/verify.mjs fallback
 node scripts/verify.mjs feed-snippet
+node scripts/verify.mjs feed-snippet-model
 node scripts/verify.mjs surface
 node scripts/verify.mjs signals
 node scripts/verify.mjs roles

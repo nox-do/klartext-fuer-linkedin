@@ -1,5 +1,9 @@
 /**
- * Nahtstelle Raw-Text → Fold-Teaser (Stub, §5.10). Implementierung liegt im Ranker (`preview/`);
- * AP6 kann hier oder im Ranker auf reine PostModel-Segmente umstellen, ohne `build-post-model` zu zerstreuen.
+ * Nahtstelle für Fold-Snippets:
+ * - AP6 primär segment-/signalbasiert aus PostModel (`resolveFeedSnippetFromPostModel`)
+ * - Fallback optional via Raw-Ranker (`resolveFeedFoldTeaser`)
  */
-export { resolveFeedFoldTeaser } from "../preview/feed-snippet-ranker.js";
+import { resolveFeedFoldTeaser } from "../preview/feed-snippet-ranker.js";
+import { resolveFeedSnippetFromPostModel } from "../preview/feed-snippet.js";
+
+export { resolveFeedFoldTeaser, resolveFeedSnippetFromPostModel };

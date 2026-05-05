@@ -6,9 +6,6 @@ import { buildNormalizedDocument } from "./segment-document.js";
 import { FEED_FOLD_CHARS } from "../domain/fold-constants.js";
 import {
   BUILDER_SENSITIVE_SIGNAL_THRESHOLD,
-  FOLD_MAX_SEGMENT_IDS,
-  FOLD_SEGMENT_HEAD_CHARS,
-  FOLD_SEGMENT_PREFIX_CHARS,
   KIND_ARTICLE_MIN_CHARS,
   KIND_ARTICLE_MIN_PARAGRAPHS,
   KIND_CONFIDENCE_ARTICLE,
@@ -45,9 +42,12 @@ import {
   TOPIC_DRIFT_SENTENCE_MEDIUM,
 } from "../domain/role-and-structure-constants.js";
 import { LONG_SENTENCE_CHARS, LONG_SENTENCE_WORDS } from "../domain/thresholds.js";
-import { resolveFeedFoldTeaser } from "./resolve-fold-teaser.js";
+import {
+  resolveFeedFoldTeaser,
+  resolveFeedSnippetFromPostModel,
+} from "./resolve-fold-teaser.js";
 
-export const POST_MODEL_VERSION = "0.1.1";
+export const POST_MODEL_VERSION = "0.1.2";
 
 /**
  * @param {string} s
@@ -242,41 +242,29 @@ function computeStructure(sentenceSegs, normLen) {
 function computeFold(raw, normalized, paragraphs, flatSegs) {
   const firstLine = normalized.split("\n")[0]?.trim() ?? "";
   const firstPara = paragraphs[0]?.text ?? "";
-  const foldResolved = resolveFeedFoldTeaser(raw, FEED_FOLD_CHARS);
+  const postLike = { paragraphs, segments: flatSegs };
+  const fromSegments = resolveFeedSnippetFromPostModel(postLike, FEED_FOLD_CHARS);
+  let bestSnippetText = fromSegments.teaser;
+  let snippetSource = fromSegments.source;
+  let bestSnippetSegmentIds = fromSegments.segmentIds;
 
-  /** @type {import('../domain/types.js').SnippetSource} */
-  let snippetSource = "fallback";
-  if (foldResolved.source === "ranked" || foldResolved.source === "ranked-weak") {
-    snippetSource = "ranked_segment";
-  } else {
-    snippetSource = "fallback";
+  // Fallback für Grenzfälle ohne verwertbare Segmentkandidaten.
+  if (!bestSnippetText) {
+    const rawResolved = resolveFeedFoldTeaser(raw, FEED_FOLD_CHARS);
+    bestSnippetText = rawResolved.teaser;
+    snippetSource =
+      rawResolved.source === "ranked" || rawResolved.source === "ranked-weak"
+        ? "ranked_segment"
+        : "fallback";
+    bestSnippetSegmentIds = [];
   }
 
-  let bestSnippetText = foldResolved.teaser;
   if (!bestSnippetText && firstLine) {
     bestSnippetText =
       firstLine.length <= FEED_FOLD_CHARS
         ? firstLine
         : `${firstLine.slice(0, Math.max(0, FEED_FOLD_CHARS - 1)).trimEnd()}…`;
     snippetSource = "first_line";
-  }
-
-  const teaserNorm = bestSnippetText.replace(/…\s*$/, "").trim();
-  /** @type {string[]} */
-  const bestSnippetSegmentIds = [];
-  if (teaserNorm) {
-    for (const s of flatSegs) {
-      if (s.type !== "sentence") continue;
-      const head = s.text.slice(0, Math.min(FOLD_SEGMENT_HEAD_CHARS, s.text.length));
-      if (
-        head &&
-        (teaserNorm.includes(head) ||
-          teaserNorm.startsWith(s.text.slice(0, FOLD_SEGMENT_PREFIX_CHARS)))
-      ) {
-        bestSnippetSegmentIds.push(s.id);
-      }
-      if (bestSnippetSegmentIds.length >= FOLD_MAX_SEGMENT_IDS) break;
-    }
   }
 
   return {

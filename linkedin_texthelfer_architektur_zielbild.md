@@ -650,7 +650,7 @@ scripts/
   dump-analysis.mjs
 ```
 
-*Hinweis `preview/`:* `feed-snippet-ranker.js` ist umgesetzt; `feed-snippet.js` (dünne Fassade / PostModel-Anbindung) folgt mit AP6/AP9 — im Zielbaum als Platzhalter geführt.
+*Hinweis `preview/`:* `feed-snippet-ranker.js` bleibt als Regression/Raw-Fallback; **`feed-snippet.js`** ist mit AP6 aktiv für segment-/signalbasiertes Fold-Snippet aus dem PostModel.
 
 *Hinweis `utils/`:* `regex.js`, `text-metrics.js` (AP2) und `signal-patterns.js` (AP3) sind umgesetzt; `escape-html.js` folgt mit UI/AP9.
 
@@ -673,11 +673,12 @@ scripts/
 | **AP2** | **erledigt** | `extract-surface-features.js`, `src/utils/regex.js` + `text-metrics.js`, `thresholds.js`, Surface je Segment in `buildNormalizedDocument`, `verify.mjs surface`; „lange Sätze“ über `isLongSegmentSurface(surface)` + Schwellen (kein extra §5.5-Feld). |
 | **AP3** | **erledigt** | `extract-signal-scores.js`, `src/utils/signal-patterns.js` (DE-first), Signale 0–1 je Segment, `verify.mjs signals`; optional Debug-Treffer später. Surface `hasQuestion` ohne URL-Query-`?` (§5.5). **Nacharbeit:** §5.6 (P1/P2). |
 | **AP4** | **erledigt** | `classify-roles.js`: `RoleScores` aus Signalen + Positions-Kontext (`docSentenceIndex`/`Count`, Absatzende → **`cta`**); Hook auch Kontrast/Claim-Hint/`hasQuestion`/CAPS; Kontext via Personal + Zeit-/Erzähl-Marker; **`sentence_pair`** leicht gedämpft; `verify.mjs roles`; Einbau in `segment-document.js`. |
-| **AP5** | **erledigt** | `build-post-model.js` / `analyze-post.js`: `PostModel` mit `kind` + **`kindConfidence`**, `StructureModel`, **`FoldModel`**-Stub via **`resolve-fold-teaser.js`**, `role-and-structure-constants.js`, lange Sätze = `thresholds.js`; `verify.mjs post-model`. |
+| **AP5** | **erledigt** | `build-post-model.js` / `analyze-post.js`: `PostModel` mit `kind` + **`kindConfidence`**, `StructureModel`, `role-and-structure-constants.js`, lange Sätze = `thresholds.js`; `verify.mjs post-model`. |
+| **AP6** | **erledigt** | Feed-Snippet 2.0: `src/preview/feed-snippet.js` (segment-/signalbasiert), angebunden über `resolve-fold-teaser.js` in `build-post-model.js`; `FoldModel` mit `snippetSource='ranked_segment'` und Segment-IDs; `verify.mjs feed-snippet-model` + bestehende `verify.mjs feed-snippet` Regression. |
 | **AP7** | **erledigt** | Rule Engine: `recommendation-types.js`, `run-rule-packs.js`, Packs `baseline`/`feed`/`risk` + Skeleton `invite`/`headline`/`article`; bei niedriger `kindConfidence` konservative Feed-Hinweise; `verify.mjs rules`. |
 | **AP8** | **erledigt** | Composer/Prioritizer: `merge-recommendations.js`, `prioritize-recommendations.js`, `compose-recommendations.js`, `copy.de.js`; max. 3 Top-Hebel, Konflikt-/`topicBucket`-Handling, Empty-State bei leerem Text; `verify.mjs recommendations`. |
 
-**Nächster empfohlener Schritt:** **AP6 — Feed-Snippet 2.0** auf Segment-/PostModel-Basis, danach AP9 UI.
+**Nächster empfohlener Schritt:** **AP9 — UI v1** (Top-3, Vorschau, Debug), danach AP10 Golden Cases.
 
 ---
 
@@ -949,15 +950,15 @@ npm test
 
 Den sichtbaren Feed-Schnipsel nicht stumpf aus den ersten 200 Zeichen schneiden, sondern aus dem PostModel ableiten.
 
-**Vorarbeit (ohne vollständiges AP6):** Die PoC-Heuristik liegt bereits unter **`src/preview/feed-snippet-ranker.js`** (aktuell noch **Rohtext / erster Absatz**, wie im Archiv). Aktive Scripts und Tests importieren **nur noch `src/`** — kein lebender Code-Pfad über `archive/` nötig. **Echtes AP6** heißt dann: Kandidaten und Auswahl aus **Segmenten/Signalen** des PostModel speisen, `FoldModel`-Felder deterministisch füllen (§5.10) — sinnvoll **nach AP5**, nicht stattdessen.
+**Implementierung AP6:** `src/preview/feed-snippet.js` nutzt Kandidaten aus **Segmenten** (Satz + Satzpaar/Pseudo-Paar) und bewertet mit Rollen-/Signalstärken; angebunden über `src/core/resolve-fold-teaser.js` in `build-post-model.js`. Der alte Ranker `feed-snippet-ranker.js` bleibt als Raw-Fallback/Regression bestehen.
 
 ### Aufgaben
 
 - [x] vorhandene Snippet-Heuristik als Referenz übernehmen *(liegt unter `src/preview/`, Regression `verify.mjs feed-snippet`)*
-- Kandidaten aus ersten Segmenten bauen
-- Hook-/These-/Benefit-Signale einbeziehen
-- sensitive Begriffe markieren, nicht blind bevorzugen
-- Fallback auf ersten Absatz erhalten
+- [x] Kandidaten aus ersten Segmenten bauen *(Satz + Satzpaar/Pseudo-Paar, erster Absatz)*
+- [x] Hook-/These-/Benefit-Signale einbeziehen
+- [x] sensitive Begriffe markieren, nicht blind bevorzugen *(Risiko/Filler-Bremse im Scoring)*
+- [x] Fallback auf ersten Absatz/erste Zeile erhalten
 
 ### Akzeptanzkriterien
 
@@ -971,6 +972,7 @@ Den sichtbaren Feed-Schnipsel nicht stumpf aus den ersten 200 Zeichen schneiden,
 ```bash
 node scripts/verify.mjs feed-snippet
 # bzw. direkt: node scripts/verify-feed-snippet.mjs
+node scripts/verify.mjs feed-snippet-model
 ```
 
 *(Der Gesamt-Runner `verify-recommendations.mjs` kommt mit AP8/AP10; Snippet-Fälle liegen in `tests/fixtures/feed-snippet-cases.mjs`.)*
@@ -1311,7 +1313,7 @@ Die 3 größten Hebel
 
 ## 14. Reihenfolge für die Umsetzung
 
-**Erledigt (siehe §10.0):** AP0–AP5, AP7, AP8.
+**Erledigt (siehe §10.0):** AP0–AP8.
 
 Empfohlene Reihenfolge:
 
@@ -1323,8 +1325,8 @@ Empfohlene Reihenfolge:
 6. ~~AP5 — PostModel Builder~~
 7. ~~AP7 — Rule Engine~~
 8. ~~AP8 — Recommendation Composer~~
-9. **AP6 — Feed-Snippet 2.0** ← *aktuell*
-10. AP9 — UI v1
+9. ~~AP6 — Feed-Snippet 2.0~~
+10. **AP9 — UI v1** ← *aktuell*
 11. AP10 — Golden Cases
 12. AP11 — ML-Schnittstelle vorbereiten
 
@@ -1332,7 +1334,7 @@ Begründung:
 
 Das PostModel muss vor der UI stabil sein. Sonst wächst die Logik wieder in DOM- und Rendering-Funktionen hinein.
 
-**Zu AP6 nach AP7/AP8:** Rule Engine und Composer können auf einem PostModel mit **Stub-Fold** arbeiten (siehe 5.10). Feed-Snippet 2.0 verfeinert nur noch Snippet-Felder — keine Blockade für Regel- und Priorisierungs-Tests. Wer Snippet-abhängige Feed-Regeln früh braucht, kann AP6 direkt nach AP5 ziehen; die obige Reihenfolge minimiert aber Wechsel an der Empfehlungs-Pipeline.
+**AP6 abgeschlossen:** Fold-Snippet wird jetzt primär segment-/signalbasiert aus dem PostModel bestimmt; der Raw-Ranker bleibt als Fallback/Regression. Damit kann AP9 die Vorschau direkt auf stabilen Modellfeldern (`fold.bestSnippetText`, `fold.bestSnippetSegmentIds`) aufbauen.
 
 ---
 
