@@ -220,7 +220,7 @@ export const GOLDEN_RECOMMENDATION_CASES = [
   {
     id: "gc21_article_thesis_late",
     input:
-      "In vielen Organisationen werden Entscheidungen noch in inoffiziellen Runden vorbereitet und spaeter formal bestaetigt. Das fuehrt zu Reibung, weil Teams nicht wissen, welche Kriterien am Ende wirklich zaehlen.\n\nWenn Priorisierung nicht transparent ist, entstehen Schleifen zwischen Produkt, Vertrieb und Operations. Jede Schleife wirkt klein, in Summe blockiert sie jedoch die Umsetzung und verlangsamt Lernen im Markt.\n\nDazu kommen Unsicherheiten bei Verantwortlichkeiten. Aufgaben werden angefasst, aber nicht abgeschlossen. Meetings erzeugen Aktivitaet, aber keinen Abschluss.\n\nDie Leitthese dieses Artikels ist einfach: Ohne explizites Entscheidungsmodell wird Koordination zum Risiko fuer Wachstum.",
+      "In vielen Organisationen werden Entscheidungen noch in inoffiziellen Runden vorbereitet und spaeter formal bestaetigt. Das fuehrt zu Reibung, weil Teams nicht wissen, welche Kriterien am Ende wirklich zaehlen.\n\nWenn Priorisierung nicht transparent ist, entstehen Schleifen zwischen Produkt, Vertrieb und Operations. Jede Schleife wirkt klein, in Summe blockiert sie jedoch die Umsetzung und verlangsamt Lernen im Markt.\n\nDazu kommen Unsicherheiten bei Verantwortlichkeiten. Aufgaben werden angefasst, aber nicht abgeschlossen. Meetings erzeugen Aktivitaet, aber keinen Abschluss.\n\nNicht mehr Abstimmung, sondern ein explizites Entscheidungsmodell wird zum Hebel fuer Wachstum.",
     options: {
       selectedPacks: ["article"],
       analyzeOptions: { kind: "article", localeHint: "de" },
@@ -372,6 +372,78 @@ export const GOLDEN_RECOMMENDATION_CASES = [
       "Der Begriff \"Schwarzarbeit\" wird hier als Negativbeispiel in einer kritischen Einordnung verwendet, um Risiken transparent zu benennen.",
     expect: {
       excludesPrefixes: ["risk.sensitive."],
+    },
+  },
+  {
+    id: "gc37_article_core_claim_needs_summary",
+    input:
+      "In den letzten Quartalen haben wir in mehreren Banken beobachtet, dass Digitalisierungsprogramme oft gleichzeitig auf Kostenreduktion, regulatorische Sicherheit, bessere Nutzererfahrung, neue Partnerprozesse und schnellere Markteinfuehrung zielen.\n\nDiese Kombination fuehrt in der Praxis dazu, dass Verantwortung zwischen Produkt, IT, Compliance und Vertrieb verteilt bleibt und Entscheidungen trotz vieler Meetings nicht klar priorisiert werden.\n\nDadurch entstehen nebeneinander mehrere Initiativen mit jeweils plausiblen Teilzielen, aber ohne gemeinsame Verdichtung auf den zentralen Hebel.\n\nEs gibt in all diesen Projekten sinnvolle Einzelmassnahmen, nur die durchgehende Kernbotschaft bleibt oft implizit und wird erst in spaeteren Abstimmungen sichtbar gemacht.\n\nWenn Teams dann unter Zeitdruck liefern muessen, steigt die Zahl der Rueckfragen und der operative Fokus geht in der Koordination verloren.",
+    options: {
+      selectedPacks: ["article"],
+      analyzeOptions: { kind: "article", localeHint: "de" },
+    },
+    expect: {
+      includes: ["article.core_claim_needs_summary"],
+    },
+  },
+  {
+    id: "gc38_article_core_claim_summary_anti_fp",
+    input:
+      "Mein Kernpunkt zuerst: Klare Entscheidungsregeln reduzieren Reibung in komplexen Organisationen.\n\nIn mehreren Programmen sehen wir dieselben Muster aus unklaren Verantwortlichkeiten und zu spaeter Priorisierung.\n\nWenn diese Regeln frueh benannt werden, sinken Rueckfragen und Teams koennen schneller liefern.\n\nFazit: Erst klare Entscheidungslogik, dann Tooling.",
+    options: {
+      selectedPacks: ["article"],
+      analyzeOptions: { kind: "article", localeHint: "de" },
+    },
+    expect: {
+      excludes: ["article.core_claim_needs_summary"],
+    },
+  },
+  {
+    id: "gc39_article_too_many_threads",
+    input:
+      "In grossen Transformationsprogrammen werden parallel Governance, Kostenmodelle und Partnersteuerung diskutiert. Gleichzeitig laufen operative Releases weiter. Regulatorische Vorgaben werden in bestehende Prozesse eingebaut.\n\nDanach verschieben sich Prioritaeten erneut. Strategie und Betrieb entscheiden zeitversetzt. Teilprojekte entwickeln eigene Narrative. Jede Sicht ist fuer sich plausibel.\n\nAm Ende entsteht viel Aktivitaet. Die Linien bleiben jedoch nebeneinander stehen. Fuer Leser ist schwer erkennbar, welche Richtung wirklich fuehrt.",
+    options: {
+      selectedPacks: ["article"],
+      analyzeOptions: { kind: "article", localeHint: "de" },
+    },
+    expect: {
+      includes: ["article.too_many_threads"],
+    },
+  },
+  {
+    id: "gc40_article_too_many_threads_anti_fp",
+    input:
+      "Leitgedanke: Ohne klares Entscheidungsmodell verliert selbst gute Technologie an Wirkung.\n\nAbschnitt 1 ordnet den Markt ein und zeigt, warum bestehende Systeme fuer viele Nutzer ausreichend funktionieren.\n\nAbschnitt 2 beschreibt den eigentlichen Hebel: Differenzierung ueber Identitaet und Verifikation statt reiner Payment-Kopie.\n\nAbschnitt 3 leitet daraus den operativen Schluss ab: erst Nutzenversprechen schaerfen, dann Rollout skalieren.\n\nFazit: Ein klarer roter Faden reduziert Reibung zwischen Strategie und Umsetzung.",
+    options: {
+      selectedPacks: ["article"],
+      analyzeOptions: { kind: "article", localeHint: "de" },
+    },
+    expect: {
+      excludes: ["article.too_many_threads"],
+    },
+  },
+  {
+    id: "gc41_article_closing_takeaway_missing",
+    input:
+      "Die Einfuehrung neuer Zahlungssysteme scheitert selten an Technik, sondern an unklarer Positionierung.\n\nWenn Marktbedarf und Differenzierung nicht frueh greifbar sind, verteilen sich Entscheidungen auf viele Gremien und verlieren Geschwindigkeit.\n\nIn der Umsetzung fuehrt das zu parallelen Initiativen, die jeweils sinnvoll wirken, aber den Gesamtfokus verwaessern.",
+    options: {
+      selectedPacks: ["article"],
+      analyzeOptions: { kind: "article", localeHint: "de" },
+    },
+    expect: {
+      includes: ["article.closing_takeaway_missing"],
+    },
+  },
+  {
+    id: "gc42_article_closing_takeaway_anti_fp",
+    input:
+      "Die Einfuehrung neuer Zahlungssysteme scheitert selten an Technik, sondern an unklarer Positionierung.\n\nWenn Marktbedarf und Differenzierung nicht frueh greifbar sind, verteilen sich Entscheidungen auf viele Gremien und verlieren Geschwindigkeit.\n\nMein Fazit: Erst klaren Nutzen belegen, dann skalieren.",
+    options: {
+      selectedPacks: ["article"],
+      analyzeOptions: { kind: "article", localeHint: "de" },
+    },
+    expect: {
+      excludes: ["article.closing_takeaway_missing"],
     },
   },
 ];

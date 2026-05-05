@@ -3,7 +3,7 @@ import { evidenceFromSegment, rec } from "./_helpers.js";
 export const RISK_PACK_ID = "risk";
 
 /**
- * Konservativer Guardrail gegen Ueberwarnung:
+ * Konservativer Guardrail gegen Überwarnung:
  * Wenn ein sensibler Begriff explizit als Negativbeispiel/Kritik eingeordnet wird,
  * erzeugen wir keine harte sensitive-Rule.
  * @param {string} text
@@ -37,11 +37,11 @@ export function runRiskRules(ctx) {
           ruleId: "sensitive_keyword",
           level: "risk",
           priority: 90,
-          title: "Missverstaendlicher Begriff moeglich",
+          title: "Missverständlicher Begriff möglich",
           message:
             "Ein Begriff kann je nach Leserschaft rechtlich oder reputativ heikel verstanden werden.",
           action:
-            "Praezisiere den Kontext in einem Zusatzsatz und vermeide missverstaendliche Verkuerzung.",
+            "Präzisiere den Kontext in einem Zusatzsatz und vermeide missverständliche Verkürzung.",
           evidence: evidenceFromSegment(post, r.segmentId),
           topicBucket: "risk",
           tags: ["risk", "compliance"],
@@ -58,10 +58,10 @@ export function runRiskRules(ctx) {
         ruleId: "overall_high",
         level: "warn",
         priority: 72,
-        title: "Aussage mit erhoehtem Interpretationsrisiko",
-        message: "Mehrere Formulierungen koennen zugespitzt oder falsch ausgelegt werden.",
+        title: "Aussage mit erhöhtem Interpretationsrisiko",
+        message: "Mehrere Formulierungen können zugespitzt oder falsch ausgelegt werden.",
         action:
-          "Pruefe zuerst den staerksten Claim: Was ist belegt, was ist Meinung? Formuliere trennscharf.",
+          "Prüfe zuerst den stärksten Claim: Was ist belegt, was ist Meinung? Formuliere trennscharf.",
         topicBucket: "risk",
         tags: ["risk", "overall"],
       }),

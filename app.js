@@ -1,4 +1,4 @@
-import { composeRecommendationsFromRaw } from "./src/recommendations/compose-recommendations.js";
+import { composeRecommendationsFromRaw } from "./src/recommendations/compose-recommendations.js?v=20260505-1";
 
 const inputEl = document.getElementById("inputText");
 const statusEl = document.getElementById("status");
@@ -30,8 +30,13 @@ function renderTop3(result) {
   if (!top3El) return;
   top3El.innerHTML = "";
   if (result.emptyState) {
+    const hasInput = Boolean(result.post?.normalized?.trim());
+    const title = hasInput ? "Aktuell kein dringender Hebel" : "Noch nichts zu bewerten";
+    const message = hasInput
+      ? "Der Entwurf wirkt bereits stabil. Wenn du magst, pruefe Details/Debug fuer Feinschliff."
+      : "Fuege mehr Text ein, dann erscheinen die wichtigsten Hebel.";
     top3El.innerHTML =
-      '<div class="item"><h3>Noch nichts zu bewerten</h3><p class="muted">Füge mehr Text ein, dann erscheinen die wichtigsten Hebel.</p></div>';
+      `<div class="item"><h3>${title}</h3><p class="muted">${message}</p></div>`;
     return;
   }
 
@@ -113,7 +118,9 @@ let lastResult = null;
 function analyzeAndRender() {
   const raw = inputEl?.value ?? "";
   const result = composeRecommendationsFromRaw(raw, {
-    selectedPacks: ["baseline", "feed", "risk"],
+    // In der UI immer alle vorhandenen Packs laufen lassen;
+    // die Pack-Runner filtern intern ueber post.kind/kindConfidence.
+    selectedPacks: ["baseline", "feed", "risk", "article", "headline", "invite"],
     analyzeOptions: { localeHint: "auto", includeDebug: true },
   });
   lastResult = result;
@@ -122,9 +129,13 @@ function analyzeAndRender() {
   renderDetails(result);
   renderDebug(result);
   if (statusEl) {
-    statusEl.textContent = result.emptyState
-      ? "Empty State aktiv."
-      : `Analyse ok: ${result.top.length} Top-Hebel`;
+    if (!result.post?.normalized?.trim()) {
+      statusEl.textContent = "Empty State aktiv.";
+    } else if (result.top.length === 0) {
+      statusEl.textContent = "Analyse ok: kein dringender Hebel gefunden.";
+    } else {
+      statusEl.textContent = `Analyse ok: ${result.top.length} Top-Hebel`;
+    }
   }
 }
 

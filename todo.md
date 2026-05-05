@@ -17,6 +17,7 @@ Kanone für Details: **`linkedin_texthelfer_architektur_zielbild.md` §5.6 — N
 
 ## Änderungen
 
+- **2026-05-05:** **Article-Pack Ausbau (technisch):** `src/rules/article.rules.js` um `article.too_many_threads`, `article.core_claim_needs_summary`, `article.closing_takeaway_missing` inkl. Guardrails erweitert; Golden Cases auf **42** (`gc37`–`gc42`) in `tests/fixtures/golden-recommendation-cases.mjs`; `verify.mjs golden` + `npm test` grün.
 - **2026-05-05:** **Lektor-Nachzug AP10**: Regel-Copy in `src/rules/{baseline,feed,risk,invite,headline,article}.rules.js` auf respektvollere, handlungsleitende Sprache geschärft; `baseline.url_in_main_text` nur noch für frühe Links (Satz 1/2); Risk-Guardrail für distanzierte Negativbeispiele (`isDistancedContext`).
 - **2026-05-05:** **AP10 Ausbau** Golden Cases: `tests/fixtures/golden-recommendation-cases.mjs` (**36 Fälle** inkl. DE/EN-Mix, Anti-FP/FN + Non-Default-Packs `invite/headline/article`), `tests/unit/golden-recommendations.test.js` (includes/excludes/top3 + Prefix-Checks inkl. Prefix-Excludes), `verify.mjs golden`, README-Testbefehl ergänzt.
 - **2026-05-05:** **AP9** UI v1: `index.html` (Layout: Textarea, Top-3, Feed-Vorschau, einklappbare Details/Debug, Copy/Clear), `app.js` ruft `composeRecommendationsFromRaw` auf und rendert Modellfelder (`fold.bestSnippetText` etc.); Smoke `./start.sh`; Zielbild §10.0 / §14 / AP9.
