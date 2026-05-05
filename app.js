@@ -1,4 +1,4 @@
-import { composeRecommendationsFromRaw } from "./src/recommendations/compose-recommendations.js?v=20260505-3";
+import { composeRecommendationsFromRaw } from "./src/recommendations/compose-recommendations.js";
 
 const inputEl = document.getElementById("inputText");
 const statusEl = document.getElementById("status");

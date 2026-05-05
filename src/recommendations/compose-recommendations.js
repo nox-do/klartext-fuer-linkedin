@@ -1,6 +1,6 @@
 import { analyzePost } from "../core/analyze-post.js";
 import { mergeRecommendations } from "./merge-recommendations.js";
-import { explainPrioritization } from "./prioritize-recommendations.js?v=20260505-2";
+import { explainPrioritization } from "./prioritize-recommendations.js";
 import { runRulePacks, DEFAULT_RULE_PACKS } from "../rules/run-rule-packs.js";
 
 /**
