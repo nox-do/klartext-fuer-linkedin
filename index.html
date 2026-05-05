@@ -7,47 +7,80 @@
     <title>LinkedIn-Texthelfer</title>
     <style>
       :root {
+        --bg: #faf7f0;
+        --paper: #fffdf8;
+        --ink: #211c17;
+        --muted: #686057;
+        --line: #c7332b;
+        --line-soft: #f3d3cd;
+        --green: #0f7a5f;
+        --green-soft: #d7eee6;
+        --border: rgba(33, 28, 23, 0.14);
+        --shadow: 0 18px 50px rgba(56, 42, 24, 0.11);
+        --shadow-soft: 0 14px 36px rgba(56, 42, 24, 0.09);
+        --serif: Georgia, "Times New Roman", serif;
         font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
         line-height: 1.45;
-        color: #101828;
-        background: #f8fafc;
+        color: var(--ink);
+        background: var(--bg);
       }
       * {
         box-sizing: border-box;
       }
       body {
         margin: 0;
+        min-height: 100vh;
         padding: 1.25rem;
+        background:
+          radial-gradient(circle at 10% 0%, rgba(199, 51, 43, 0.08), transparent 32rem),
+          linear-gradient(180deg, #fbf4e9 0%, var(--bg) 42%, #f6efe4 100%);
+        color: var(--ink);
       }
       main {
-        max-width: 980px;
+        max-width: 1020px;
         margin: 0 auto;
         display: grid;
         gap: 1rem;
       }
       .card {
-        background: #fff;
-        border: 1px solid #e4e7ec;
-        border-radius: 12px;
+        background: color-mix(in srgb, var(--paper) 92%, white);
+        border: 1px solid var(--border);
+        border-radius: 16px;
         padding: 1rem;
+        box-shadow: var(--shadow-soft);
       }
       h1 {
         margin: 0 0 0.25rem;
-        font-size: 1.3rem;
+        font-size: 1.45rem;
+        font-family: var(--serif);
+        font-weight: 400;
+        letter-spacing: -0.02em;
+      }
+      h2 {
+        margin: 0 0 0.6rem;
+        font-family: var(--serif);
+        font-weight: 400;
+        letter-spacing: -0.02em;
       }
       .muted {
-        color: #475467;
+        color: var(--muted);
         margin: 0;
       }
       textarea {
         width: 100%;
-        min-height: 180px;
+        min-height: 220px;
         resize: vertical;
-        border: 1px solid #d0d5dd;
-        border-radius: 10px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
         padding: 0.75rem;
         font: inherit;
         line-height: 1.4;
+        background: #fff;
+        color: var(--ink);
+      }
+      textarea:focus {
+        outline: 2px solid color-mix(in srgb, var(--line) 30%, transparent);
+        outline-offset: 1px;
       }
       .toolbar {
         margin-top: 0.6rem;
@@ -55,25 +88,52 @@
         flex-wrap: wrap;
         gap: 0.5rem;
       }
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        margin-bottom: 0.5rem;
+      }
+      .section-head h2 {
+        margin: 0;
+      }
+      .icon-btn {
+        width: 2rem;
+        height: 2rem;
+        padding: 0;
+        border-radius: 999px;
+        display: inline-grid;
+        place-items: center;
+        color: var(--muted);
+        font-size: 0.95rem;
+        line-height: 1;
+      }
+      .icon-btn:hover {
+        color: var(--ink);
+      }
       button {
-        border: 1px solid #d0d5dd;
-        background: #fff;
-        border-radius: 8px;
+        border: 1px solid var(--border);
+        background: color-mix(in srgb, var(--paper) 92%, white);
+        border-radius: 999px;
         padding: 0.45rem 0.7rem;
         font: inherit;
         cursor: pointer;
+        color: var(--ink);
       }
       button:hover {
-        background: #f2f4f7;
+        background: var(--line-soft);
+        border-color: color-mix(in srgb, var(--line) 30%, var(--border));
       }
       .top3 {
         display: grid;
         gap: 0.8rem;
       }
       .item {
-        border: 1px solid #eaecf0;
-        border-radius: 10px;
+        border: 1px solid var(--border);
+        border-radius: 12px;
         padding: 0.7rem;
+        background: rgba(255, 253, 248, 0.75);
       }
       .item h3 {
         margin: 0 0 0.25rem;
@@ -84,17 +144,19 @@
         border-radius: 999px;
         padding: 0.1rem 0.5rem;
         font-size: 0.78rem;
-        border: 1px solid #d0d5dd;
-        color: #344054;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        background: #fff;
       }
       pre {
         white-space: pre-wrap;
         word-break: break-word;
         margin: 0;
         font-size: 0.82rem;
+        color: #40372f;
       }
       .preview {
-        border-left: 3px solid #98a2b3;
+        border-left: 3px solid var(--line);
         padding-left: 0.75rem;
       }
     </style>
@@ -113,19 +175,30 @@
         <textarea id="inputText" placeholder="Füge hier deinen LinkedIn-Entwurf ein ..."></textarea>
         <div class="toolbar">
           <button id="copyInputBtn" type="button">Input kopieren</button>
-          <button id="copyTop3Btn" type="button">Top-3 kopieren</button>
           <button id="clearBtn" type="button">Leeren</button>
           <span id="status" class="muted"></span>
         </div>
       </section>
 
       <section class="card">
-        <h2>Die 3 größten Hebel</h2>
+        <div class="section-head">
+          <h2>Die 3 größten Hebel</h2>
+          <button id="copyTop3Btn" type="button">Top-3 kopieren</button>
+        </div>
         <div id="top3" class="top3"></div>
       </section>
 
       <section class="card">
-        <h2>Feed-Vorschau</h2>
+        <div class="section-head">
+          <h2>Feed-Vorschau</h2>
+          <button
+            id="copyPreviewBtn"
+            class="icon-btn"
+            type="button"
+            title="Vorschau kopieren"
+            aria-label="Feed-Vorschau kopieren"
+          >⧉</button>
+        </div>
         <div id="preview" class="preview muted">Noch keine Vorschau.</div>
       </section>
 

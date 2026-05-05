@@ -8,6 +8,7 @@ const detailsEl = document.getElementById("detailsList");
 const debugEl = document.getElementById("debugOut");
 const copyInputBtn = document.getElementById("copyInputBtn");
 const copyTop3Btn = document.getElementById("copyTop3Btn");
+const copyPreviewBtn = document.getElementById("copyPreviewBtn");
 const clearBtn = document.getElementById("clearBtn");
 
 /**
@@ -113,6 +114,13 @@ function top3AsText(result) {
     .join("\n");
 }
 
+/**
+ * @param {ReturnType<typeof composeRecommendationsFromRaw>} result
+ */
+function previewAsText(result) {
+  return result.post.fold?.bestSnippetText || "Keine Snippet-Vorschau verfügbar.";
+}
+
 let lastResult = null;
 
 function analyzeAndRender() {
@@ -151,6 +159,13 @@ if (copyTop3Btn) {
   copyTop3Btn.addEventListener("click", () => {
     if (!lastResult) return;
     copyText(top3AsText(lastResult));
+  });
+}
+
+if (copyPreviewBtn) {
+  copyPreviewBtn.addEventListener("click", () => {
+    if (!lastResult) return;
+    copyText(previewAsText(lastResult));
   });
 }
 
