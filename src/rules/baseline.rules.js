@@ -39,9 +39,9 @@ export function runBaselineRules(ctx) {
         ruleId: "all_caps_opening",
         level: "hint",
         priority: 38,
-        title: "Einstieg wirkt laut",
-        message: "ALL-CAPS im ersten Satz kann wie Schrei-Marketing wirken.",
-        action: "Prüfe normale Schreibweise für einen ruhigeren Einstieg.",
+        title: "Einstieg sehr betont",
+        message: "Der erste Satz wirkt durch GROSSSCHREIBUNG schnell konfrontativ.",
+        action: "Prüfe normale Schreibweise, wenn du sachlich statt alarmierend wirken willst.",
         evidence: evidenceFromSegment(post, firstSentence.id),
         topicBucket: "tone",
         tags: ["baseline", "tone"],
@@ -62,9 +62,9 @@ export function runBaselineRules(ctx) {
         ruleId: "long_sentence",
         level: "hint",
         priority: 44,
-        title: "Sehr langer Satz",
-        message: "Lange Sätze bremsen Scanbarkeit im Feed.",
-        action: "Teile den Satz in zwei kürzere Aussagen auf.",
+        title: "Langer Satz im Einstieg",
+        message: "Ein sehr langer Satz erschwert das schnelle Erfassen im Feed.",
+        action: "Teile den Satz in zwei kurze Aussagen (Problem + Wirkung).",
         evidence: evidenceFromSegment(post, longSentence.id),
         topicBucket: "readability",
         tags: ["baseline", "readability"],
@@ -72,7 +72,13 @@ export function runBaselineRules(ctx) {
     );
   }
 
-  const urlInSentence = post.segments.find((s) => s.type === "sentence" && s.surface.hasUrl);
+  const sentenceSegs = post.segments.filter((s) => s.type === "sentence");
+  const urlInSentence = sentenceSegs.find(
+    (s, i) =>
+      s.surface.hasUrl &&
+      // Frühe Links lenken meist stärker ab; spätere Verweise sind oft inhaltlich nötig.
+      i <= 1,
+  );
   if (urlInSentence) {
     out.push(
       rec({
@@ -81,9 +87,9 @@ export function runBaselineRules(ctx) {
         ruleId: "url_in_main_text",
         level: "info",
         priority: 20,
-        title: "Link im Haupttext",
-        message: "Frühe Links können Fokus vom Argument wegziehen.",
-        action: "Prüfe, ob der Link später oder im Kommentar besser passt.",
+        title: "Link lenkt frueh ab",
+        message: "Ein Link im Fliesstext kann den Lesefluss vor dem Kernpunkt unterbrechen.",
+        action: "Setze den Link ans Ende oder in den ersten Kommentar.",
         evidence: evidenceFromSegment(post, urlInSentence.id),
         topicBucket: "focus",
         tags: ["baseline", "focus"],

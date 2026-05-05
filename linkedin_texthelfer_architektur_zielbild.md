@@ -678,9 +678,9 @@ scripts/
 | **AP7** | **erledigt** | Rule Engine: `recommendation-types.js`, `run-rule-packs.js`, Packs `baseline`/`feed`/`risk` + Skeleton `invite`/`headline`/`article`; bei niedriger `kindConfidence` konservative Feed-Hinweise; `verify.mjs rules`. |
 | **AP8** | **erledigt** | Composer/Prioritizer: `merge-recommendations.js`, `prioritize-recommendations.js`, `compose-recommendations.js`, `copy.de.js`; max. 3 Top-Hebel, Konflikt-/`topicBucket`-Handling, Empty-State bei leerem Text; `verify.mjs recommendations`. |
 | **AP9** | **erledigt** | UI v1: `index.html` + `app.js` — Live-Analyse, Top-3, Feed-Vorschau (`fold`), Details/Debug einklappbar, Copy/Clear; `composeRecommendationsFromRaw`; Smoke `./start.sh`. |
-| **AP10** | **in Arbeit** | Golden Cases: `tests/fixtures/golden-recommendation-cases.mjs` + `tests/unit/golden-recommendations.test.js`; aktuell **30 Fälle** (Feed/Baseline/Risk + `invite/headline/article`, inkl. DE/EN-Mix), Includes/Excludes/Top-3 + Anti-FP/FN (u. a. URL-Query-`?`, kurzer Frage-Text, Prefix-Excludes bei Risk); `verify.mjs golden`. |
+| **AP10** | **in Arbeit** | Golden Cases: `tests/fixtures/golden-recommendation-cases.mjs` + `tests/unit/golden-recommendations.test.js`; aktuell **36 Fälle** (Feed/Baseline/Risk + `invite/headline/article`, inkl. DE/EN-Mix), Includes/Excludes/Top-3 + Anti-FP/FN (u. a. URL-Query-`?`, kurzer Frage-Text, Prefix-Excludes bei Risk); `verify.mjs golden`. |
 
-**Nächster empfohlener Schritt:** AP10 weiter qualitativ kalibrieren (weitere Edge-Cases pro Regel), danach ggf. ML-Schnittstelle (AP11).
+**Nächster empfohlener Schritt:** AP10 fein kalibrieren (v. a. Tonalität pro Zielkontext und verbleibende Edge-Cases), danach ggf. ML-Schnittstelle (AP11).
 
 ---
 
@@ -1130,7 +1130,7 @@ Die Engine gegen realistische Texttypen absichern.
 
 Fixtures anlegen:
 
-- [x] Start-Set (30 Cases) mit realistischen Feed-/Risk-/Baseline-Szenarien
+- [x] Start-Set (36 Cases) mit realistischen Feed-/Risk-/Baseline-Szenarien
 - [x] Anti-FP-Cases (u. a. URL-Query-`?`, kurzer echter Fragetext ohne erzwungenes `cta_missing`)
 - [x] Ausbau auf mindestens 20 Cases inkl. Invite/Headline/Article-Packs
 - [ ] Ergänzung von Varianten für DE/EN-Mix

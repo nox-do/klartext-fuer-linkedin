@@ -3,6 +3,21 @@ import { evidenceFromSegment, rec } from "./_helpers.js";
 export const RISK_PACK_ID = "risk";
 
 /**
+ * Konservativer Guardrail gegen Ueberwarnung:
+ * Wenn ein sensibler Begriff explizit als Negativbeispiel/Kritik eingeordnet wird,
+ * erzeugen wir keine harte sensitive-Rule.
+ * @param {string} text
+ */
+function isDistancedContext(text) {
+  const t = text ?? "";
+  const hasMarker = /\b(negativbeispiel|kritik|kritisch|einordn|distanzier|warnung)\b/i.test(t);
+  const hasQuotedKeyword = /["'„][^"'”]{0,40}(Schwarzarbeit|Steuerhinterziehung|illegal|Betrug)[^"'”]{0,40}["'”]/i.test(
+    t,
+  );
+  return hasMarker || hasQuotedKeyword;
+}
+
+/**
  * @param {import('../domain/recommendation-types.js').RuleContext} ctx
  * @returns {import('../domain/recommendation-types.js').RuleResult[]}
  */
@@ -13,6 +28,8 @@ export function runRiskRules(ctx) {
 
   for (const r of post.risks) {
     if (r.code === "sensitive_keyword") {
+      const segText = post.segments.find((s) => s.id === r.segmentId)?.text ?? "";
+      if (isDistancedContext(segText)) continue;
       out.push(
         rec({
           id: `risk.sensitive.${r.id}`,
@@ -20,10 +37,11 @@ export function runRiskRules(ctx) {
           ruleId: "sensitive_keyword",
           level: "risk",
           priority: 90,
-          title: "Heikler Begriff erkannt",
+          title: "Missverstaendlicher Begriff moeglich",
           message:
-            "Der Text enthält Begriffe mit erhöhter Missverständnis- oder Compliance-Gefahr.",
-          action: "Prüfe Formulierung, Einordnung und ggf. Quelle/Disclaimer.",
+            "Ein Begriff kann je nach Leserschaft rechtlich oder reputativ heikel verstanden werden.",
+          action:
+            "Praezisiere den Kontext in einem Zusatzsatz und vermeide missverstaendliche Verkuerzung.",
           evidence: evidenceFromSegment(post, r.segmentId),
           topicBucket: "risk",
           tags: ["risk", "compliance"],
@@ -40,9 +58,10 @@ export function runRiskRules(ctx) {
         ruleId: "overall_high",
         level: "warn",
         priority: 72,
-        title: "Erhöhtes Gesamtrisiko",
-        message: "Mehrere Signale deuten auf heikle Interpretation durch Leser hin.",
-        action: "Kernaussagen präzisieren und riskante Zuspitzungen abschwächen.",
+        title: "Aussage mit erhoehtem Interpretationsrisiko",
+        message: "Mehrere Formulierungen koennen zugespitzt oder falsch ausgelegt werden.",
+        action:
+          "Pruefe zuerst den staerksten Claim: Was ist belegt, was ist Meinung? Formuliere trennscharf.",
         topicBucket: "risk",
         tags: ["risk", "overall"],
       }),

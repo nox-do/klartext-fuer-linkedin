@@ -37,7 +37,7 @@ export const GOLDEN_RECOMMENDATION_CASES = [
   {
     id: "gc04_url_query_not_cta",
     input:
-      "Wir haben den Ablauf in drei Schritten dokumentiert und alle Übergaben sichtbar gemacht. So wurde klar, wo Informationen hängen bleiben und warum Entscheidungen zu spät fallen. Details stehen hier: https://example.com/guide?ref=linkedin&step=1. Seitdem sparen wir wöchentlich Zeit in Abstimmungen und vermeiden doppelte Arbeit im Team. Der Beitrag erklärt bewusst nur den Ablauf und enthält keine Abschlussfrage für Kommentare.",
+      "Wir haben den Ablauf in drei Schritten dokumentiert und alle Uebergaben sichtbar gemacht. Details stehen hier: https://example.com/guide?ref=linkedin&step=1. So wurde klar, wo Informationen haengen bleiben und warum Entscheidungen zu spaet fallen. Seitdem sparen wir woechentlich Zeit in Abstimmungen und vermeiden doppelte Arbeit im Team. Der Beitrag erklaert bewusst nur den Ablauf und enthaelt keine Abschlussfrage fuer Kommentare.",
     options: { analyzeOptions: { kind: "feed", localeHint: "de" } },
     expect: {
       includes: ["baseline.url_in_main_text", "feed.cta_missing"],
@@ -96,7 +96,7 @@ export const GOLDEN_RECOMMENDATION_CASES = [
   {
     id: "gc10_multi_signal_mix",
     input:
-      "DAS IST EIN KRITISCHER FEHLER IM ABLAUF. Wir sehen in mehreren Teams, dass Aufgaben ohne klare Priorisierung durch viele Schleifen laufen, Verantwortlichkeiten unklar bleiben, Rückfragen zu spät auftauchen, Abstimmungen doppelt stattfinden und dadurch Woche für Woche Zeit verloren geht, obwohl alle Beteiligten engagiert arbeiten. Schwarzarbeit wird dann als scheinbar schneller Ausweg diskutiert, was neue Risiken erzeugt und Vertrauen zerstört. Mehr Details stehen hier: https://example.com/ops?topic=handover&lang=de. Der Text beschreibt nur die Lage und endet ohne Frage.",
+      "DAS IST EIN KRITISCHER FEHLER IM ABLAUF. Mehr Details stehen hier: https://example.com/ops?topic=handover&lang=de. Wir sehen in mehreren Teams, dass Aufgaben ohne klare Priorisierung durch viele Schleifen laufen, Verantwortlichkeiten unklar bleiben, Rueckfragen zu spaet auftauchen, Abstimmungen doppelt stattfinden und dadurch Woche fuer Woche Zeit verloren geht, obwohl alle Beteiligten engagiert arbeiten. Schwarzarbeit wird dann als scheinbar schneller Ausweg diskutiert, was neue Risiken erzeugt und Vertrauen zerstoert. Der Text beschreibt nur die Lage und endet ohne Frage.",
     options: { analyzeOptions: { kind: "feed", localeHint: "de" } },
     expect: {
       includes: [
@@ -288,7 +288,7 @@ export const GOLDEN_RECOMMENDATION_CASES = [
   {
     id: "gc28_en_url_query_no_cta_false_positive",
     input:
-      "We documented the process in detail and shared examples from two teams. Decision criteria were mapped, ownership gaps were listed, and handover delays were measured over several weeks. Details: https://example.com/playbook?lang=en&ref=post. The post intentionally ends without a direct audience question so the engine can detect a missing CTA without mistaking the URL query string for a real question.",
+      "We documented the process in detail and shared examples from two teams. Details: https://example.com/playbook?lang=en&ref=post. Decision criteria were mapped, ownership gaps were listed, and handover delays were measured over several weeks. The post intentionally ends without a direct audience question so the engine can detect a missing CTA without mistaking the URL query string for a real question.",
     options: { analyzeOptions: { kind: "feed", localeHint: "auto" } },
     expect: {
       includes: ["baseline.url_in_main_text"],
@@ -318,6 +318,60 @@ export const GOLDEN_RECOMMENDATION_CASES = [
     },
     expect: {
       excludes: ["invite.too_long"],
+    },
+  },
+  {
+    id: "gc31_anti_fp_caps_acronym_only",
+    input:
+      "B2B KPI ROI: Drei Beobachtungen aus dem letzten Quartal. Klare Kriterien beschleunigen Entscheidungen.",
+    expect: {
+      excludes: ["baseline.all_caps_opening"],
+    },
+  },
+  {
+    id: "gc32_anti_fp_intentional_rhythm_not_long_sentence",
+    input:
+      "Wir haben Kriterien geklaert; wir haben Rollen geklaert; wir haben Uebergaben geklaert. Das Team arbeitet ruhiger.",
+    expect: {
+      excludes: ["baseline.long_sentence"],
+    },
+  },
+  {
+    id: "gc33_anti_fp_link_required_context_late",
+    input:
+      "Die Kernaussage vorweg: klare Entscheidungsregeln reduzieren Reibung. Wir haben den Prozess in zwei Teams ueber mehrere Wochen beobachtet und die Ergebnisse intern verglichen. Die Auswertung zeigt weniger Schleifen und schnellere Entscheidungen in den Uebergaben. Datengrundlage und Methodik stehen hier: https://example.com/study.",
+    options: { analyzeOptions: { kind: "feed", localeHint: "de" } },
+    expect: {
+      excludes: ["baseline.url_in_main_text"],
+    },
+  },
+  {
+    id: "gc34_anti_fp_no_cta_for_non_feed_context",
+    input:
+      "Verbindliche Rollen und klare Entscheidungsregeln sind Voraussetzung fuer belastbare Prozesse.\n\nDieser Text ist als kurzer Leitartikel-Hinweis gedacht und nicht als Diskussionsfrage formuliert.\n\nEr beschreibt einen Standard fuer interne Kommunikation und endet bewusst ohne Frage.",
+    options: {
+      selectedPacks: ["feed"],
+      analyzeOptions: { kind: "article", localeHint: "de" },
+    },
+    expect: {
+      excludes: ["feed.cta_missing"],
+    },
+  },
+  {
+    id: "gc35_anti_fp_narrative_hook_with_early_claim",
+    input:
+      "Der Kernpunkt zuerst: Klare Verantwortung beschleunigt Umsetzung. Letzte Woche haben wir trotzdem zwei Schleifen gebraucht, bis ein Team die Entscheidung final getroffen hat. Die Geschichte dient hier als Kontext, nicht als Ersatz fuer die Aussage.",
+    options: { analyzeOptions: { kind: "feed", localeHint: "de" } },
+    expect: {
+      excludes: ["feed.thesis_too_late"],
+    },
+  },
+  {
+    id: "gc36_anti_fp_sensitive_in_distanced_context",
+    input:
+      "Der Begriff \"Schwarzarbeit\" wird hier als Negativbeispiel in einer kritischen Einordnung verwendet, um Risiken transparent zu benennen.",
+    expect: {
+      excludesPrefixes: ["risk.sensitive."],
     },
   },
 ];
